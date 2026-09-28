@@ -123,10 +123,10 @@ class OutlierRecordContractTests(unittest.TestCase):
         def read(request):
             return payload if request.full_url==OUTLIER_API_URL else json.dumps(
                 self.details[int(request.full_url.rsplit('/',1)[-1])])
-        with refresh_request_budget(http_limit=9,audit_sink=events.append), patch.object(
-                outlier,'_read_json',side_effect=read):
+        with refresh_request_budget(http_limit=10,audit_sink=events.append), patch.object(
+                outlier,'_read_json',side_effect=read), patch.object(outlier,'remaining_http_requests',return_value=9):
             result=crawl_outlier(OUTLIER_API_URL)
-        self.assertEqual(len(result.jobs),7)
+        self.assertEqual(len(result.jobs),8)
         self.assertEqual(result.raw_record_count,9)
         self.assertFalse(any(job.external_id=='9999999999' for job in result.jobs))
         pending=[event for event in events if event['event']=='pending_qualification']
@@ -157,10 +157,10 @@ class OutlierRecordContractTests(unittest.TestCase):
             if request.full_url==OUTLIER_API_URL:return payload
             identity=int(request.full_url.rsplit('/',1)[-1])
             return json.dumps(detail if identity==fresh['id'] else self.details[identity])
-        with refresh_request_budget(http_limit=9,audit_sink=events.append), patch.object(
-                outlier,'_read_json',side_effect=read):
+        with refresh_request_budget(http_limit=10,audit_sink=events.append), patch.object(
+                outlier,'_read_json',side_effect=read), patch.object(outlier,'remaining_http_requests',return_value=9):
             result=crawl_outlier(OUTLIER_API_URL)
-        self.assertEqual(len(result.jobs),8)
+        self.assertEqual(len(result.jobs),9)
         new=next(job for job in result.jobs if job.external_id==str(fresh['id']))
         self.assertEqual(new.record_promotion_attestation.contract_id,
             outlier.GENERAL_CONTRACT_ID)
@@ -177,7 +177,7 @@ class OutlierRecordContractTests(unittest.TestCase):
             prepare_record_promotion_attestation(tampered,prepare_source_capture(tampered),
                 context,provider='outlier',source_type=result.source_type)
 
-    def test_new_detail_slot_rotates_without_starving_known_ids(self):
+    def test_in_scope_roles_rotate_fairly_when_configured_budget_is_too_small(self):
         rows=json.loads(self.index)['jobs']
         extras=[dict(rows[0],id=9999999990+i,
             absolute_url=f'https://app.outlier.ai/opportunities/{9999999990+i}')
@@ -186,7 +186,6 @@ class OutlierRecordContractTests(unittest.TestCase):
         for day in range(8):
             chosen=outlier.select_daily_rows(rows+extras,8,day)
             self.assertEqual(len(chosen),8)
-            self.assertEqual(sum(row['id'] in outlier.OUTLIER_V1_IDS for row in chosen),7)
             covered.update(row['id'] for row in chosen)
         self.assertEqual(covered,{row['id'] for row in rows+extras})
 

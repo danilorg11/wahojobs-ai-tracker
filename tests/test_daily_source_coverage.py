@@ -206,7 +206,7 @@ class CoveragePolicyTests(unittest.TestCase):
         for row in manifest['sources']:
             # The September 23 activation manifest is historical; later
             # individually reviewed sources keep their own versioned policy.
-            if row['source'] not in ('dataannotation','dataforce','handshake','surge','outlier'):
+            if row['source'] not in ('dataannotation','dataforce','handshake','surge','outlier','mercor'):
                 self.assertEqual({k:row[k] for k in policy.POLICY[row['source']]},policy.POLICY[row['source']])
         policy.validate_sources(example['sources'])
         self.assertFalse(example['enabled']);self.assertFalse(example['alert_delivery']['approved'])
@@ -250,7 +250,7 @@ class CoveragePolicyTests(unittest.TestCase):
         self.assertEqual({name:row for name,row in changed.items() if name!='outlier'},
                          {name:row for name,row in before.items() if name!='outlier'})
         for source in settings:
-            changed=deepcopy(settings);changed[source]['http_max']+=1
+            changed=deepcopy(settings);changed[source]['http_max']=policy.POLICY[source]['http_max']+1
             with self.assertRaises(ValueError):policy.validate_sources(changed)
             if source not in policy.READY_SOURCES:
                 changed=deepcopy(settings);changed[source]['enabled']=True

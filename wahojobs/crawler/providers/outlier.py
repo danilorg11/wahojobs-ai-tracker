@@ -4,6 +4,7 @@ import hashlib
 from http.client import HTTPException
 import json
 import re
+from collections import Counter
 from datetime import datetime, timezone
 from urllib.error import HTTPError, URLError
 from urllib.parse import urlsplit
@@ -16,7 +17,7 @@ from wahojobs.classification import (
 from wahojobs.crawler.local_inventory import (open_public, remaining_http_requests,
     record_pending_qualification_ids)
 from wahojobs.crawler.types import BODY_OBSERVATION_PRESENT, JobCandidate, RecordPromotionAttestation
-from wahojobs.daily_source_policy import OUTLIER_V1_IDS, observed_outlier_details
+from wahojobs.daily_source_policy import OUTLIER_V1_IDS, OUTLIER_MAX_DETAILS, observed_outlier_details
 
 INDEX_URL = "https://app.outlier.ai/internal/experts/job-board/jobs"
 DETAIL_PREFIX = INDEX_URL + "/"
@@ -64,9 +65,9 @@ def parse_index(payload):
         raise ValueError("Outlier board envelope changed.")
     if not data["jobs"]:
         raise ValueError("Outlier empty board has no validated snapshot authority.")
-    ids = [str(row.get("id")) for row in data["jobs"] if type(row) is dict]
-    if len(ids) != len(data["jobs"]) or len(ids) != len(set(ids)):
-        raise ValueError("Outlier board identities are invalid or duplicated.")
+    # Individual evidence does not depend on unrelated malformed cards. The
+    # selector excludes every copy of ambiguous IDs; the attestation validator
+    # independently requires exactly one matching index record for each job.
     return data["jobs"]
 
 
@@ -184,20 +185,20 @@ def qualify_index_detail(row, detail, index_payload, *, general=False):
 
 
 def select_daily_rows(rows, slots, day_ordinal):
-    """Recheck seven established records and rotate one new board ID each day."""
-    if type(slots) is not int or not 0 <= slots <= 8 or type(day_ordinal) is not int:
+    """Sweep all evidenced families before spending remaining slots on discovery."""
+    if type(slots) is not int or not 0 <= slots <= OUTLIER_MAX_DETAILS or type(day_ordinal) is not int:
         raise ValueError("Outlier detail rotation bounds are invalid.")
-    eligible = [row for row in rows if should_include_job(row)]
-    known = [row for row in eligible if row['id'] in OUTLIER_V1_IDS]
-    unseen = [row for row in eligible if row['id'] not in OUTLIER_V1_IDS]
-    known.sort(key=lambda row: row['id'])
-    unseen.sort(key=lambda row: row['id'])
-    reserve = 1 if unseen and slots else 0
-    known_slots = min(len(known), slots-reserve)
-    selected = [known[(day_ordinal+offset) % len(known)] for offset in range(known_slots)]
-    remaining = slots-len(selected)
-    selected.extend(unseen[(day_ordinal+offset) % len(unseen)]
-                    for offset in range(min(remaining,len(unseen))))
+    counts = Counter(str(row.get('id')) for row in rows if type(row) is dict)
+    eligible = sorted((row for row in rows if should_include_job(row)
+        and counts[str(row['id'])] == 1), key=lambda row: row['id'])
+    supported = [row for row in eligible if row['id'] in OUTLIER_V1_IDS
+        or _supported_role_family(row['title'].strip(), str(row.get('content', '')))]
+    other = [row for row in eligible if row not in supported]
+    selected = []
+    for pool in (supported, other):
+        count = min(len(pool), slots-len(selected))
+        start = day_ordinal*count % len(pool) if pool and count < len(pool) else 0
+        selected.extend(pool[(start+offset) % len(pool)] for offset in range(count))
     return selected
 
 
@@ -207,11 +208,12 @@ def fetch_outlier_jobs(api_url):
     index_payload = _read_json(Request(api_url, data=b"{}", headers=REQUEST_HEADERS, method="POST"))
     rows = parse_index(index_payload)
     remaining = remaining_http_requests()
-    slots = min(8, len(rows), remaining if remaining is not None else 8)
+    slots = min(OUTLIER_MAX_DETAILS, len(rows), remaining if remaining is not None else 8)
     selected = select_daily_rows(rows, slots, datetime.now(timezone.utc).date().toordinal())
     candidates = []
     with observed_outlier_details(tuple(DETAIL_PREFIX + str(row["id"]) for row in selected),
-                                  index_ids={row['id'] for row in rows}):
+                                  index_ids={row['id'] for row in rows if type(row) is dict
+                                      and type(row.get('id')) is int and row['id'] > 0}):
         for row in selected:
             try:
                 detail = json.loads(_read_json(Request(
@@ -223,8 +225,8 @@ def fetch_outlier_jobs(api_url):
                 continue
     accepted = {int(job.external_id) for job in candidates}
     record_pending_qualification_ids(source='outlier',
-        identities={row['id'] for row in rows if type(row.get('id')) is int
-                    and row['id'] > 0 and row['id'] not in OUTLIER_V1_IDS
+        identities={row['id'] for row in rows if type(row) is dict and type(row.get('id')) is int
+                    and row['id'] > 0
                     and row['id'] not in accepted},
         index_sha256=hashlib.sha256(index_payload.encode()).hexdigest())
     return candidates, len(rows), len(selected)

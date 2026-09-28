@@ -58,7 +58,7 @@ class RemainingSourceBoundaries(unittest.TestCase):
         reduced = [dataforce.select_daily_detail_pages(jobs, 7, 739883+i)
                    for i in range(8)]
         self.assertTrue(set(map(id, known)) <= set(map(id, sum(reduced, []))))
-        self.assertTrue(all(any(job in backlog for job in day) for day in reduced))
+        self.assertTrue(all(all(job in known for job in day) for day in reduced))
         self.assertEqual(dataforce.select_daily_detail_pages(jobs, 0, 739883), [])
 
     def test_dataforce_failed_exploratory_detail_keeps_known_records(self):

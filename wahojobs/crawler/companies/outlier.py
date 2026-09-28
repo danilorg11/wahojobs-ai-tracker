@@ -20,6 +20,8 @@ def crawl_outlier(api_url):
         raw_record_count=raw_count,
         normalized_record_count=len(jobs),
         filtered_record_count=raw_count-len(jobs),
+        warnings=((f'outlier_index_records_unqualified:{raw_count-len(jobs)}',)
+                  if raw_count != len(jobs) else ()),
         payload_shape="outlier_index_detail_record_v1",
         schema_fingerprint="outlier_index_detail_record_v1",
     )

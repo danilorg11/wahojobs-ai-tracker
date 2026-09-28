@@ -83,6 +83,11 @@ def decode_result(document):
     records = []
     for item in document.get('source_records', []):
         item = dict(item)
+        if document.get('source_type') == 'mercor-marketplace':
+            from wahojobs.mercor_availability import MercorPageRecord
+            item['requests'] = tuple(item['requests'])
+            records.append(_construct(MercorPageRecord, item))
+            continue
         item['departments'] = tuple(_construct(GreenhouseDepartmentMetadata, dict(d, child_ids=tuple(d['child_ids']))) for d in item['departments'])
         item['offices'] = tuple(_construct(GreenhouseOfficeMetadata, dict(d, child_ids=tuple(d['child_ids']))) for d in item['offices'])
         item['additional_locations'] = tuple(item['additional_locations'])
@@ -93,7 +98,7 @@ def decode_result(document):
     return result
 
 
-def collect(source, careers_url, directory, *, run_id, code_commit, http_max, journal_root, controlled_validation=False, audit_sink=None):
+def collect(source, careers_url, directory, *, run_id, code_commit, http_max, journal_root, controlled_validation=False, audit_sink=None, known_jobs=None):
     from wahojobs import evidence_maintenance as maintenance
     from wahojobs.crawler.pipeline import CRAWLERS
     from wahojobs.crawler.source_registry import assert_production_dispatch_allowed
@@ -109,6 +114,9 @@ def collect(source, careers_url, directory, *, run_id, code_commit, http_max, jo
         careers_url=careers_url, code_commit=code_commit, contract_fingerprint=maintenance.contract_fingerprint(),
         started_at=timestamp(), http_max=http_max,
         controlled_validation=controlled_validation)
+    if known_jobs is not None:
+        if source != 'mercor': raise ValueError('known_job_context_out_of_scope')
+        plan['known_job_scope_sha256'] = maintenance.digest(list(known_jobs))
     plan['plan_id'] = maintenance.digest(plan)
     root = Path(directory); root.mkdir(parents=True, exist_ok=True)
     maintenance.save_json(root/(source+'-collection.json'), dict(plan_id=plan['plan_id']))
@@ -119,7 +127,8 @@ def collect(source, careers_url, directory, *, run_id, code_commit, http_max, jo
     def audit(event):
         if audit_sink is not None:audit_sink(event)
         journal.append('source_transport', event)
-    with source_context, refresh_request_budget(http_limit=http_max, detail_limit=0,
+    from wahojobs.mercor_availability import known_public_jobs
+    with source_context, known_public_jobs(known_jobs), refresh_request_budget(http_limit=http_max, detail_limit=0,
             audit_sink=audit) as budget:
         journal.append('started', dict(operation='collect:'+source))
         try:
@@ -153,6 +162,8 @@ def load(directory, source, *, run_id, code_commit, journal_root, consume=False)
     value = Observation(source, plan['careers_url'], plan['started_at'], collected[0]['completed_at'],
         decode_result(collected[0]['result']), plan_id, finished['hash'], finished['data']['request_usage'],
         bool(plan.get('controlled_validation', False)))
+    from wahojobs.mercor_availability import validate_journal_records
+    validate_journal_records(value.result, report)
     validate_observation(value, source)
     if consume:
         with (Path(journal_root)/plan_id/'publication.claim').open('x') as stream:

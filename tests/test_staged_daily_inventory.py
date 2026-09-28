@@ -33,6 +33,8 @@ class StagedIntegrationTests(unittest.TestCase):
         try:
             with offline(at,Transport()):daily.collect_phase(self.config,'staged','collect-appen')
             self.assertEqual(self.db.read_bytes(),before)
+            with offline(at,Transport()):prepared=daily.collect_phase(self.config,'staged','prepare-backup')
+            self.assertEqual(self.db.read_bytes(),before)
             # Session activity while collection is online must remain present;
             # publication must use current storage, never an old database copy.
             with closing(sqlite3.connect(self.db)) as db:
@@ -42,7 +44,9 @@ class StagedIntegrationTests(unittest.TestCase):
         current=daily.protected_domains(self.db)
         later=at+timedelta(minutes=20)
         with offline(later,Transport()),patch.dict(pipeline.CRAWLERS,appen=Mock(side_effect=AssertionError('Publication cannot collect'))):
-            for phase in ('backup','publish-appen','finish'):daily.collect_phase(self.config,'staged',phase)
+            for phase in ('backup','publish-appen','finish'):
+                daily.collect_phase(self.config,'staged',phase,
+                    **({'expected_preparation_sha256':prepared['prepared_sha256']} if phase=='backup' else {}))
         self.assertEqual(current,daily.protected_domains(self.db))
         row=daily.read_json(target/'appen.json')
         self.assertTrue(row['qualifying_observation']);self.assertEqual(row['publication_requests_used'],0)
@@ -91,6 +95,46 @@ class StagedIntegrationTests(unittest.TestCase):
 
 
 class StagedSupervisorTests(unittest.TestCase):
+    def test_preparation_digest_crosses_only_the_direct_worker_channel(self):
+        with tempfile.TemporaryDirectory() as temp:
+            target=Path(temp)/'runs/fixture';target.mkdir(parents=True)
+            daily.write_json(target/'run.json',dict(prepared_sha256='f'*64))
+            daily.write_json(target/'journal-preparation.json',dict(prepared_sha256='f'*64))
+            native=cli.NativeOperations(dict(state_directory=temp),'fixture')
+            proof=json.dumps(dict(run_id='fixture',prepared_sha256='a'*64))
+            with patch.object(cli,'bounded_process',return_value=proof) as process:
+                with self.assertRaisesRegex(ValueError,'trusted_journal_preparation_required'):
+                    native.phase('fixture','backup',cli.time.monotonic()+60)
+                process.assert_not_called()
+                native.phase('fixture','prepare-backup',cli.time.monotonic()+60)
+                self.assertTrue(process.call_args.kwargs['capture_output'])
+                native.phase('fixture','backup',cli.time.monotonic()+60)
+                self.assertEqual(process.call_args.args[0][-2:],['--prepared-sha256','a'*64])
+            self.assertNotIn('prepared_sha256',daily.read_json(target/'run.json').get('active_phase',{}))
+            for invalid in (dict(run_id='other',prepared_sha256='a'*64),dict(run_id='fixture',prepared_sha256='bad')):
+                with patch.object(cli,'bounded_process',return_value=json.dumps(invalid)),\
+                        self.assertRaisesRegex(ValueError,'trusted_journal_preparation_required'):
+                    native.phase('fixture','prepare-backup',cli.time.monotonic()+60)
+
+    def test_online_evidence_preparation_reserves_the_existing_publication_window(self):
+        from types import SimpleNamespace
+        with tempfile.TemporaryDirectory() as temp:
+            target=Path(temp)/'runs/fixture';target.mkdir(parents=True)
+            schedule={source:dict(state='due' if source=='appen' else 'disabled',stored_records=1)
+                for source in daily.SOURCES}
+            daily.write_json(target/'coverage-plan.json',schedule)
+            native=cli.NativeOperations(dict(state_directory=temp,sources=daily.default_sources(),
+                code_commit='a'*40,journal=str(Path(temp)/'journal')),'fixture')
+            clock=[0];calls=[]
+            def phase(run_id,name,deadline):
+                calls.append((name,deadline));clock[0]+=1
+            observation=SimpleNamespace(result=SimpleNamespace(jobs=[1]))
+            with patch.object(cli.time,'monotonic',side_effect=lambda:clock[0]),\
+                    patch.object(native,'phase',side_effect=phase),patch.object(staged,'load',return_value=(observation,{})):
+                self.assertTrue(native.collect('fixture',500))
+            self.assertEqual([name for name,_ in calls],['prepare','collect-appen','prepare-backup'])
+            self.assertEqual(calls[-1][1],500-daily.PUBLICATION_SECONDS)
+
     def test_online_failure_never_stops_or_restores_beta(self):
         with tempfile.TemporaryDirectory() as temp:
             config=dict(state_directory=temp,database=str(Path(temp)/'fixture.sqlite3'),first_run_at=daily.stamp(T0.replace(hour=6)))

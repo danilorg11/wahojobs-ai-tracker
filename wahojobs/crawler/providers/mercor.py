@@ -42,7 +42,8 @@ def fetch_mercor_observations(api_url):
     data = json.loads(payload)
     from wahojobs.crawler.local_inventory import record_envelope_shape
     record_envelope_shape(data)
-    return parse_mercor_observations(data)
+    from wahojobs.mercor_availability import augment_result
+    return augment_result(parse_mercor_observations(data))
 
 
 def parse_mercor_observations(data):
@@ -57,7 +58,8 @@ def parse_mercor_observations(data):
     # Withhold all copies of duplicate identities, including conflicting status.
     duplicates = {identity for identity, count in identities.items() if count > 1}
     jobs = [parse_mercor_listing(listing, attest=True) for listing in listings
-            if should_include_listing(listing) and listing["listingId"] not in duplicates]
+            if should_include_listing(listing) and listing.get("disableApplications", False) is False
+            and listing["listingId"] not in duplicates]
     return CompanyCrawlResult(
         jobs=jobs, used_sample_data=False, source_type="mercor-marketplace",
         source_message="Observed public active Mercor records; complete inventory is not established.",

@@ -1,12 +1,13 @@
 import html
 import hashlib
 import re
+from http.client import HTTPException
 from dataclasses import dataclass
 from html.parser import HTMLParser
 from urllib.error import HTTPError, URLError
 from urllib.parse import urljoin, urlparse
 from urllib.request import Request
-from wahojobs.crawler.local_inventory import open_public as urlopen
+from wahojobs.crawler.local_inventory import open_public as urlopen, record_pending_qualification_ids
 from wahojobs.daily_source_policy import observed_surge_details
 from wahojobs.crawler.types import RecordPromotionAttestation, BODY_OBSERVATION_PRESENT
 
@@ -53,14 +54,25 @@ def fetch_surge_jobs(base_url):
         raise RuntimeError("Surge crawl failed: no workforce links found.")
 
     jobs = []
+    pending = set()
     with observed_surge_details(tuple(record.url for record in workforce_records)):
         for record in workforce_records:
-            detail_page = fetch_required_page(record.url, f"workforce detail {record.url}")
-            jobs.append(parse_workforce_detail(record, detail_page.text,
-                                               index_page_html=workforce_page.text))
+            try:
+                detail_page = fetch_required_page(record.url, f"workforce detail {record.url}")
+                jobs.append(parse_workforce_detail(record, detail_page.text,
+                                                   index_page_html=workforce_page.text))
+            except (OSError, HTTPException, RuntimeError, ValueError, TypeError, KeyError):
+                pending.add(f"surge::workforce::{record.slug}")
+    record_pending_qualification_ids(source='surge', identities=pending,
+        index_sha256=hashlib.sha256(workforce_page.text.encode()).hexdigest())
 
-    fellowship_page = fetch_required_page(fellowship_url, "fellowship page")
-    fellowship_job = parse_fellowship_page(fellowship_url, fellowship_page.text)
+    # Fellowship has no publication authority. Its independent failure must not
+    # discard successful, exact workforce observations.
+    try:
+        fellowship_page = fetch_required_page(fellowship_url, "fellowship page")
+        fellowship_job = parse_fellowship_page(fellowship_url, fellowship_page.text)
+    except (OSError, HTTPException, RuntimeError, ValueError, TypeError, KeyError):
+        fellowship_job = None
     if fellowship_job is not None:
         jobs.append(fellowship_job)
 

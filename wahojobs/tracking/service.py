@@ -71,6 +71,10 @@ def track_crawl_result(conn, company_id, crawl_run_id, crawl_result: CompanyCraw
         with_source_hash(company["slug"], candidate)
         for candidate in crawl_result.jobs
     )
+    exact_records = {}
+    if company["slug"] == "mercor":
+        from wahojobs.mercor_availability import validate_publication
+        exact_records = validate_publication(conn, company_id, crawl_run_id, crawl_result, now)
     seen_hashes = [candidate.source_hash for candidate in candidates]
     removal_authorization = evaluate_removal_authorization(crawl_result)
     if removal_authorization.authorized:
@@ -104,6 +108,8 @@ def track_crawl_result(conn, company_id, crawl_run_id, crawl_result: CompanyCraw
     )
 
     for candidate in candidates:
+        exact_record = exact_records.get(candidate.external_id)
+        observed_at = exact_record.observed_at if exact_record is not None else now
         existing = get_job_by_hash(conn, company_id, candidate.source_hash)
 
         if existing is None:
@@ -111,7 +117,7 @@ def track_crawl_result(conn, company_id, crawl_run_id, crawl_result: CompanyCraw
                 conn,
                 company_id,
                 candidate,
-                now,
+                observed_at,
                 semantic_authority_state=SEMANTIC_AUTHORITY_PENDING,
             )
             capture = upsert_job_source_content(
@@ -120,19 +126,19 @@ def track_crawl_result(conn, company_id, crawl_run_id, crawl_result: CompanyCraw
                 company["slug"],
                 crawl_result.source_type,
                 candidate,
-                now,
+                observed_at,
                 capture_context=capture_context,
             )
             if capture.accepted:
                 semantically_changed_job_ids.add(job_id)
-            update_seen_job(conn, job_id, now)
-            create_job_event(conn, job_id, crawl_run_id, "discovered", now)
+            update_seen_job(conn, job_id, observed_at)
+            create_job_event(conn, job_id, crawl_run_id, "discovered", observed_at)
             jobs_new += 1
             continue
 
         if existing["is_active"] == 0:
             jobs_reactivated += 1
-            create_job_event(conn, existing["id"], crawl_run_id, "reactivated", now)
+            create_job_event(conn, existing["id"], crawl_run_id, "reactivated", observed_at)
         else:
             jobs_updated += 1
         capture = upsert_job_source_content(
@@ -141,7 +147,7 @@ def track_crawl_result(conn, company_id, crawl_run_id, crawl_result: CompanyCraw
             company["slug"],
             crawl_result.source_type,
             candidate,
-            now,
+            observed_at,
             capture_context=capture_context,
         )
         if (
@@ -152,7 +158,7 @@ def track_crawl_result(conn, company_id, crawl_run_id, crawl_result: CompanyCraw
         update_seen_job(
             conn,
             existing["id"],
-            now,
+            observed_at,
         )
 
     jobs_removed = 0
@@ -162,6 +168,14 @@ def track_crawl_result(conn, company_id, crawl_run_id, crawl_result: CompanyCraw
         semantically_changed_job_ids.update(removed_job_ids)
         for job_id in removed_job_ids:
             create_job_event(conn, job_id, crawl_run_id, "removed", now)
+
+    for record in exact_records.values():
+        if record.state == "closed":
+            conn.execute("UPDATE jobs SET is_active=0, removed_at=?, updated_at=? WHERE id=?",
+                (record.observed_at, record.observed_at, record.known_job_id))
+            create_job_event(conn, record.known_job_id, crawl_run_id, "removed", record.observed_at)
+            semantically_changed_job_ids.add(record.known_job_id)
+            jobs_removed += 1
 
     affected_canonical_ids = canonical_ids_for_jobs(
         conn,

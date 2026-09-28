@@ -113,6 +113,7 @@ def collect_index_linked_details(jobs):
     with observed_dataforce_details(urls):
         for job in ordered:
             known = urlparse(job.url).path in QUALIFIED_DETAIL_PATHS
+            in_scope = known or supported_thyme_family(job)
             try:
                 page = fetch_page(job.url)
                 if any(marker in page.casefold() for marker in
@@ -126,14 +127,13 @@ def collect_index_linked_details(jobs):
                     qualified.append(qualify_detail_record(job, page, general=True))
             except (HTTPError, URLError, TimeoutError, RuntimeError, ValueError,
                     OSError, HTTPException):
-                if known:
+                if in_scope:
                     verification_failures += 1
                 else:
                     inspection_failures += 1
                 continue
     accepted={job.external_id for job in qualified}
     pending={job.external_id for job in jobs if job.external_id not in accepted
-        and urlparse(job.url).path not in QUALIFIED_DETAIL_PATHS
         and job.commitment == 'Remote'
         and 'minor' not in job.title.casefold() and 'menor' not in job.title.casefold()}
     pages=sorted({(job.source_metadata or {}).get('index_page_url','')+'|'+
@@ -172,46 +172,26 @@ def inspection_detail_matches_index(job, detail_html):
 
 
 def select_daily_detail_pages(jobs, slots, day_ordinal):
-    """Refresh historical roles and rotate new Thyme and exploratory cards.
+    """Refresh all current supported roles before exploratory cards.
 
     The rotation is deterministic for a UTC day and uses no new queue or
     unseen endpoint. Non-Thyme inspected cards remain pending only.
     """
-    if type(slots) is not int or slots < 0 or type(day_ordinal) is not int:
+    if type(slots) is not int or not 0 <= slots <= MAX_DETAIL_PAGES or type(day_ordinal) is not int:
         raise ValueError('DataForce detail rotation bounds are invalid.')
-    known = [job for job in jobs if urlparse(job.url).path in QUALIFIED_DETAIL_PATHS]
-    backlog = [job for job in jobs if job not in known
+    supported = sorted((job for job in jobs if urlparse(job.url).path in QUALIFIED_DETAIL_PATHS
+        or supported_thyme_family(job)), key=lambda job: job.url)
+    other = sorted((job for job in jobs if job not in supported
         and job.commitment == 'Remote'
         and 'minor' not in job.title.casefold()
         and 'menor' not in job.title.casefold()
         and 'onsite' not in job.title.casefold()
-        and 'on site' not in job.title.casefold()]
-    reserve=1 if backlog and (slots>1 or slots==1 and day_ordinal%2==1) else 0
-    known_slots=min(len(known),slots-reserve)
-    selected=([known[(day_ordinal*known_slots+offset)%len(known)] for offset in range(known_slots)]
-              if known_slots<len(known) else known[:])
-    spaces=slots-len(selected)
-    family=[job for job in backlog if supported_thyme_family(job)]
-    other=[job for job in backlog if job not in family]
-    def add_rotated(pool,count):
-        if not pool or count<=0:return
-        start=(day_ordinal*count) % len(pool)
-        for offset in range(len(pool)):
-            job=pool[(start+offset)%len(pool)]
-            if job not in selected:
-                selected.append(job)
-                count-=1
-            if count<=0 or len(selected)>=slots:return
-    if family and other:
-        if spaces==1:
-            add_rotated(family if day_ordinal%2==0 else other,1)
-        else:
-            add_rotated(family,(spaces+1)//2)
-            add_rotated(other,spaces//2)
-            add_rotated(family,slots-len(selected))
-            add_rotated(other,slots-len(selected))
-    else:
-        add_rotated(family or other,spaces)
+        and 'on site' not in job.title.casefold()), key=lambda job: job.url)
+    selected=[]
+    for pool in (supported, other):
+        count=min(len(pool),slots-len(selected))
+        start=day_ordinal*count % len(pool) if pool and count<len(pool) else 0
+        selected.extend(pool[(start+offset)%len(pool)] for offset in range(count))
     return selected
 
 

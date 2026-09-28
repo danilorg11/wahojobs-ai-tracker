@@ -21,9 +21,11 @@ _DATAANNOTATION_DOMAINS = ContextVar('dataannotation_controlled_domains', defaul
 _DATAFORCE_OBSERVED_DETAILS = ContextVar('dataforce_observed_details', default=frozenset())
 _SURGE_OBSERVED_DETAILS = ContextVar('surge_observed_details', default=frozenset())
 _HANDSHAKE_OBSERVED_ASSETS = ContextVar('handshake_observed_assets', default=frozenset())
+_MERCOR_KNOWN_IDS = ContextVar('mercor_known_ids', default=frozenset())
 _OUTLIER_OBSERVED_DETAILS = ContextVar('outlier_observed_details', default=frozenset())
 OUTLIER_V1_IDS = frozenset({4729394005, 4729399005, 4729398005, 4729395005,
                            4705643005, 4705636005, 4719499005, 4723202005})
+OUTLIER_MAX_DETAILS = 50
 
 
 def entry(requests, seconds, expected, scope, rule, *, blocker=None, correction=None, cooldown=0):
@@ -60,9 +62,10 @@ POLICY = {
         ['GET https://boards-api.greenhouse.io/v1/boards/agency/jobs?content=true',
          'GET https://boards-api.greenhouse.io/v1/boards/agency/departments/4012485101?render_as=tree'],
         'Existing approved Greenhouse jobs/meta.total and AI department tree crosscheck, exact record attestations and count-drop guard.'),
-    'mercor': entry(1, 60, 1,
-        ['GET https://aws.api.mercor.com/work/listings-explore-page'],
-        'Partial public listings array only: unique exact active, nonprivate, nondeleted records; absence never closes. No retained pagination contract proves provider-wide completeness.'),
+    'mercor': entry(201, 360, 1,
+        ['GET https://aws.api.mercor.com/work/listings-explore-page',
+         'GET https://work.mercor.com/jobs/<known listingId>[/<slug>]; at most 100 missing known IDs and one same-ID redirect each'],
+        'Partial explorer positives plus dated exact public application availability for known missing IDs. Explicit typed disabled-application state and matching visible closure message can close only that known job; absence, privacy or transport failures never close.'),
     'micro1': entry(50, 240, 4,
         ['POST https://prod-api.micro1.ai/api/v1/job/portal?page=<1..50>&limit=100&keyword= ; body {"action":"get_all_jobs","filters":{"type":["EXPERT"]}}'],
         'Stable declared total and exact unique-ID pagination; native 50-page ceiling; optional /post detail requests excluded.'),
@@ -74,10 +77,10 @@ POLICY = {
     'oneforma': entry(3, 210, 1,
         ['GET https://www.oneforma.com/wp-json/wp/v2/job?per_page=100&_embed=wp:term&page=<1..3>'],
         'Stable X-WP-TotalPages and unique post IDs; each post may emit many language/application variants; cap before final page is incomplete.'),
-    'outlier': entry(9, 60, 9,
+    'outlier': entry(51, 60, 9,
         ['POST https://app.outlier.ai/internal/experts/job-board/jobs ; body {}',
-         'GET up to eight exact current-index-linked https://app.outlier.ai/internal/experts/job-board/jobs/<id>'],
-        'Individual board/detail and role-bound signupFlowId; four evidenced role families can admit new IDs, one rotating new-ID detail slot per cycle. Partial only, no absence closure.'),
+         'GET up to 50 exact current-index-linked https://app.outlier.ai/internal/experts/job-board/jobs/<id>'],
+        'Individual board/detail and role-bound signupFlowId; all current evidenced role-family IDs are prioritized within the configured budget, then exploratory IDs. Over-cap identities remain pending. Partial only, no absence closure.'),
     'rws': entry(1, 60, 1,
         ['GET https://api.lever.co/v0/postings/rws?mode=json&expand=location'],
         'Complete validated Lever list with existing TrainAI keyword filter and category transformation; excluded corporate postings counted separately.'),
@@ -96,13 +99,13 @@ POLICY = {
 READY_SOURCES = tuple(s for s in CORE_SOURCES if POLICY[s]['readiness'] == 'ready')
 NEW_SCOPES_REQUIRE_EXPLICIT_CONFIGURATION = frozenset({'dataannotation', 'dataforce', 'handshake', 'surge', 'outlier'})
 OVERHEAD_SECONDS = 240  # stop/preflight queries, one backup, final integrity, process cleanup
-MAX_EXECUTION_SECONDS = 2580  # approved Outlier ceiling; recovery and maintenance remain separate
+MAX_EXECUTION_SECONDS = 2580  # shared native ceiling; expanded source caps must fit configured budgets
 
 
 def default_sources():
     return {s: dict(enabled=s in READY_SOURCES and s not in NEW_SCOPES_REQUIRE_EXPLICIT_CONFIGURATION,
-        http_max=POLICY[s]['http_max'],
-        seconds_max=POLICY[s]['seconds_max']) for s in CORE_SOURCES}
+        http_max=9 if s == 'outlier' else 1 if s == 'mercor' else POLICY[s]['http_max'],
+        seconds_max=60 if s == 'mercor' else POLICY[s]['seconds_max']) for s in CORE_SOURCES}
 
 
 def validate_sources(configured):
@@ -132,8 +135,20 @@ def current_source():return _DAILY_SOURCE.get()
 
 
 @contextmanager
+def observed_mercor_public_jobs(identities):
+    from wahojobs.mercor_availability import public_job_url, MAX_MISSING_JOBS
+    if (type(identities) not in (list, tuple) or len(identities) > MAX_MISSING_JOBS
+            or len(identities) != len(set(identities))):
+        raise ValueError('mercor_public_identity_scope_invalid')
+    for identity in identities: public_job_url(identity)
+    token = _MERCOR_KNOWN_IDS.set(frozenset(identities))
+    try: yield
+    finally: _MERCOR_KNOWN_IDS.reset(token)
+
+
+@contextmanager
 def observed_outlier_details(urls, *, index_ids=None):
-    if type(urls) not in (tuple, list) or len(urls) > len(OUTLIER_V1_IDS) or len(urls) != len(set(urls)):
+    if type(urls) not in (tuple, list) or len(urls) > OUTLIER_MAX_DETAILS or len(urls) != len(set(urls)):
         raise ValueError('outlier_detail_scope_invalid')
     if index_ids is None:
         allowed = OUTLIER_V1_IDS
@@ -315,7 +330,14 @@ def validate_request(request):
     elif source == 'meridial':
         ok = (at('boards-api.greenhouse.io','/v1/boards/agency/jobs') and query=={'content':['true']} or
               at('boards-api.greenhouse.io','/v1/boards/agency/departments/4012485101') and query=={'render_as':['tree']})
-    elif source == 'mercor':ok = at('aws.api.mercor.com','/work/listings-explore-page') and not query
+    elif source == 'mercor':
+        ok = at('aws.api.mercor.com','/work/listings-explore-page') and not query
+        if not ok and p.netloc == 'work.mercor.com' and method == 'GET' and not query:
+            from wahojobs.mercor_availability import public_job_url
+            identity = p.path.split('/')[2] if p.path.startswith('/jobs/') else None
+            if identity in _MERCOR_KNOWN_IDS.get():
+                try: ok = public_job_url(identity, request.full_url) == request.full_url
+                except ValueError: pass
     elif source == 'outlier':
         ok = (at('app.outlier.ai','/internal/experts/job-board/jobs','POST')
               and not query and body == {}

@@ -98,6 +98,8 @@ def _event_line(event,*,resolved_application_at=None):
         line=f'{name}: observation failed qualification; verification was not renewed.'
     elif key.endswith(':publication'):
         line=f'{name}: captured observation was not successfully published; inspect the publication receipt.'
+    elif key.endswith(':undercoverage'):
+        line=f'{name}: {issue.get("pending_records")} discovered or known posting IDs remain unverified; qualifying exact records were published.'
     elif key.startswith('run:'):
         line='Daily cycle: '+issue.get('reason','execution problem').replace('_',' ')+'.'
     elif key=='delivery:uncertain':line='Operational email delivery failed or is uncertain; the original message was not retried.'
@@ -115,6 +117,8 @@ def message(events,context=None):
                 'missed':'Daily check missed','partial':'Partial daily check','complete':'Daily check complete',
                 'failed':'Daily check failed'}.get(state,'Stored operational update')
     headline=state_text
+    repair=context.get('operator_repair') or {}
+    if repair.get('resolves_daily_failure'):headline='Inventory verified by operator repair'
     application_events=sorted((e for e in events if e['key']=='application:unavailable'),key=lambda e:parse(e['at']))
     resolved_at=application_events[-1]['at'] if application_events and application_events[-1]['kind']=='recovered' else None
     operating=context.get('operating') or {};application=operating.get('application') or {}
@@ -143,7 +147,7 @@ def message(events,context=None):
     failure=cycle.get('failure') or {}
     if failure:
         phase=failure.get('phase','')
-        label={'backup':'pre-publication backup','prepare':'collection preparation','collection':'source collection',
+        label={'backup':'pre-publication backup','prepare-backup':'online backup preparation','prepare':'collection preparation','collection':'source collection',
             'publication':'source publication','stop':'application shutdown','finish':'final integrity checks',
             'restore':'application restoration'}.get(phase)
         if phase.startswith(('collect-','publish-')):
@@ -158,6 +162,7 @@ def message(events,context=None):
                     'the operation failed; inspect the retained diagnostic'))
             lines.append('Failure stage: '+label+'. Reason: '+reason+'.')
             if phase=='backup':lines.append('Publication did not start; captured observations did not renew verification.')
+            elif phase=='prepare-backup':lines.append('Publication did not start; the application remained online during evidence preparation.')
     if state in ('partial','failed'):
         qualified=len(cycle.get('qualified_sources',[]));failed=len(cycle.get('failed_sources',[]))
         lines.append(f"Last cycle: {qualified} source{'s' if qualified!=1 else ''} verified and published; "
@@ -166,11 +171,20 @@ def message(events,context=None):
                       'No source publication was verified for this cycle.'))
         for field,label in (('accounting_unavailable_sources','source accounting unavailable'),
                             ('qualification_failed_sources','observations failed qualification'),
+                            ('undercovered_sources','sources with pending posting verification'),
                             ('publication_failed_sources','publication incomplete or failed'),
                             ('not_attempted_sources','sources blocked, skipped or disabled')):
             names=cycle.get(field,[])
             if names:lines.append(f"{len(names)} {label}: "+', '.join(_name(name+':coverage') for name in names)+'.')
     elif state=='complete':lines.append('Last cycle completed its qualifying source checks.')
+    if repair:
+        lines.append('Subsequent operator repair ('+_readable(repair.get('started_at'))+'): '+repair['state']+'. '+
+            str(len(repair.get('qualified_sources',[])))+' of '+str(len(repair.get('selected_sources',[])))+
+            ' selected sources verified and published. The original scheduled-cycle receipt remains unchanged.')
+        if repair.get('remaining_sources'):
+            lines.append('Repair sources still requiring verification: '+', '.join(_name(s+':coverage') for s in repair['remaining_sources'])+'.')
+        if repair.get('incomplete_sources'):
+            lines.append('Repair sources with remaining posting verification: '+', '.join(_name(s+':coverage') for s in repair['incomplete_sources'])+'.')
     if cycle.get('new_opportunities') is not None and state in ('partial','complete'):
         lines.append(f"Catalog impact: {cycle['new_opportunities']:,} newly published opportunities "
                      f"({cycle['new_variants']:,} variants); {cycle['changed_variants']:,} changed variants; "

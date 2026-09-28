@@ -128,6 +128,128 @@ def reserve_run(directory,at,first_run,trigger):
     return receipt
 
 
+def repair_sources(receipt):
+    sources=receipt.get('repair_sources')
+    if sources is None:return None
+    if (type(sources) is not list or not sources or any(type(s) is not str for s in sources)
+            or len(sources)!=len(set(sources)) or not set(sources)<=set(SOURCES)
+            or receipt.get('availability_sources') is not None):
+        raise ValueError('repair_source_scope_invalid')
+    return sources
+
+
+def selected_sources(receipt):
+    from wahojobs.availability_recovery import selected
+    return repair_sources(receipt) or selected(receipt)
+
+
+def repair_policy_binding(config):
+    return maintenance.digest(dict(code_commit=config['code_commit'],database=config['database'],
+        journal=config.get('journal'),sources=source_settings(config)))
+
+
+def validate_repair_binding(config,receipt):
+    sources=repair_sources(receipt)
+    if sources is not None and (receipt.get('trigger')!='operator_repair'
+            or receipt.get('code_commit')!=config['code_commit']
+            or receipt.get('repair_policy_sha256')!=repair_policy_binding(config)
+            or any(not source_settings(config)[source]['enabled'] for source in sources)):
+        raise ValueError('repair_release_or_policy_changed')
+    return sources
+
+
+def reserve_repair_run(config,at,request_id,sources):
+    """Consume one explicit operator request, independent of the daily slot.
+
+    The request directory is a global durable claim. Even interruption before a
+    run receipt is written consumes it; retrying never issues employer requests.
+    """
+    import re
+    if (not isinstance(request_id,str) or not re.fullmatch('[a-z][a-z0-9-]{2,63}',request_id)
+            or not re.fullmatch('[a-f0-9]{40}',config.get('code_commit',''))
+            or at.tzinfo is None or config.get('enabled') is False):
+        raise ValueError('explicit_repair_request_required')
+    sources=repair_sources({'repair_sources':sources})
+    if sources is None:raise ValueError('repair_source_scope_invalid')
+    sources=[source for source in SOURCES if source in sources]
+    if any(not source_settings(config)[source]['enabled'] or POLICY[source]['readiness']!='ready' for source in sources):
+        raise ValueError('repair_source_disabled_or_blocked')
+    identity=sha256(request_id.encode('ascii')).hexdigest()
+    binding=dict(request_id=request_id,code_commit=config['code_commit'],sources=sources,
+        policy_sha256=repair_policy_binding(config))
+    root=Path(config['state_directory']);claim=root/'repair-requests'/identity
+    claim.parent.mkdir(mode=0o750,parents=True,exist_ok=True)
+    native_root=os.name=='posix' and os.geteuid()==0
+    if native_root:
+        # Root owns the once-only claims; the existing beta group can read
+        # their immutable bindings for stored-state health reporting.
+        owner=root.stat();os.chown(claim.parent,0,owner.st_gid);os.chmod(claim.parent,0o750)
+    try:claim.mkdir(mode=0o700,parents=True,exist_ok=False)
+    except FileExistsError:
+        original=read_json(claim/'request.json')
+        if original is not None and original.get('binding')!=binding:
+            raise ValueError('repair_request_already_bound')
+        return None
+    if native_root:os.chown(claim,0,owner.st_gid);os.chmod(claim,0o750)
+    run_id=at.astimezone(timezone.utc).strftime('%Y%m%dT%H%M%SZ')+'-repair-'+identity[:16]
+    write_json(claim/'request.json',dict(binding=binding,run_id=run_id,reserved_at=stamp(at)))
+    if native_root:os.chmod(claim/'request.json',0o640)
+    target=root/'runs'/run_id;target.mkdir(mode=0o700,parents=True,exist_ok=False)
+    if os.name=='posix' and os.geteuid()==0:
+        parent=target.parent.stat();os.chown(target,parent.st_uid,parent.st_gid)
+    receipt=dict(version=VERSION,run_id=run_id,trigger='operator_repair',
+        code_commit=config['code_commit'],repair_request_id=request_id,
+        repair_policy_sha256=binding['policy_sha256'],repair_sources=sources,
+        scheduled_at=stamp(at),started_at=stamp(at),ended_at=None,outcome='reserved',sources={},
+        maintenance_seconds=0,next_scheduled_execution=stamp(next_trigger(at)))
+    write_json(target/'run.json',receipt)
+    return receipt
+
+
+def latest_operator_repair(config,at):
+    """Show a separate repair outcome; never rewrite the scheduled run."""
+    root=Path(config['state_directory']);candidates=[]
+    for path in (root/'runs').glob('*-repair-*/run.json'):
+        try:
+            receipt=read_json(path);sources=repair_sources(receipt)
+            if not sources or receipt.get('trigger')!='operator_repair':continue
+            started=parse(receipt['started_at'])
+            if not slot_at(at)<=started<=at:continue
+            request_id=receipt['repair_request_id']
+            identity=sha256(request_id.encode('ascii')).hexdigest()
+            claim=read_json(root/'repair-requests'/identity/'request.json',{})
+            expected=dict(request_id=request_id,code_commit=receipt['code_commit'],sources=sources,
+                policy_sha256=receipt['repair_policy_sha256'])
+            if (claim.get('binding')!=expected or claim.get('run_id')!=receipt['run_id']
+                    or path.parent.name!=receipt['run_id']):continue
+            rows=receipt.get('sources') or {}
+            qualified=sorted(s for s in sources if isinstance(rows.get(s),dict)
+                and rows[s].get('qualifying_observation') is True)
+            ended=parse(receipt['ended_at']) if receipt.get('ended_at') else None
+            if ended and not started<=ended<=at:continue
+            worker=read_json(path.parent/'worker.json',{})
+            complete=(receipt.get('outcome') in SUCCESSFUL_RUN_OUTCOMES
+                and set(rows)==set(sources) and set(qualified)==set(sources) and ended is not None
+                and all(not rows[s].get('pending_qualification_count') and not rows[s].get('missing') for s in sources)
+                and receipt.get('normal_service_resumed') is True
+                and worker.get('protected_domains_unchanged') is True)
+            state=('complete' if complete else 'running' if receipt.get('outcome') in ('running','reserved') else
+                'partial' if receipt.get('outcome') in (*SUCCESSFUL_RUN_OUTCOMES,'partial_or_failed') else 'failed')
+            enabled={s for s,row in source_settings(config).items() if row['enabled']}
+            current={s:read_source_state(config,s) or {} for s in enabled} if complete else {}
+            still_verified=complete and all(row.get('qualifying_observation') is True
+                and not row.get('pending_qualification_count') and not row.get('missing')
+                and row.get('ended_at') and parse(row['ended_at'])>=ended for row in current.values())
+            candidates.append(dict(run_id=receipt['run_id'],started_at=stamp(started),ended_at=stamp(ended) if ended else None,
+                state=state,selected_sources=sources,qualified_sources=qualified,
+                remaining_sources=sorted(set(sources)-set(qualified)),
+                incomplete_sources=sorted(s for s in sources if rows.get(s,{}).get('pending_qualification_count')
+                    or rows.get(s,{}).get('missing')),
+                resolves_daily_failure=still_verified and enabled<=set(qualified)))
+        except (OSError,ValueError,KeyError,TypeError,AttributeError):continue
+    return max(candidates,key=lambda r:(r['started_at'],r['run_id']),default=None)
+
+
 def protected_domains(database):
     """Hashes only; no profiles, identities or history enter operational logs."""
     result={}
@@ -174,13 +296,17 @@ def summarize_source(plan,report,started,ended):
     pending=[e['data'] for e in events if e['event']=='source_transport'
              and e['data'].get('event')=='pending_qualification'
              and e['data'].get('source')==provider]
-    if provider in ('outlier','dataforce'):
+    if provider in ('outlier','dataforce','surge','mercor'):
         row['pending_qualification_ids']=pending[-1]['identities'] if pending else []
         row['pending_qualification_count']=len(row['pending_qualification_ids'])
         row['pending_qualification_index_sha256']=pending[-1]['index_sha256'] if pending else None
         row['pending_qualification_scope']='identities without a qualifying detail in this run; prior qualification is not inferred'
         row['discovery_scope']=('observed public board; only versioned, individually attested IDs can publish'
             if provider=='outlier' else
+            'exact public pages of known IDs missing from the explorer; the general catalog remains partial'
+            if provider=='mercor' else
+            'observed public workforce index; exact workforce records with attested details can publish'
+            if provider=='surge' else
             'observed public project index; only exact remote Thyme AI-writing family records with attested details can publish')
     before={j['job_id']:j for j in plan['sources'][0]['jobs']}
     if results and results[-1].get('failure_diagnostic'):
@@ -197,7 +323,18 @@ def summarize_source(plan,report,started,ended):
     individual=(provider in ('mercor','dataannotation','dataforce','handshake','surge','outlier')
         or provider=='mindrift' and run.get('status')=='partial'
             and COUNT_DROP_WARNING in summary.get('warnings',[]))
-    qualifies=valid and (bool(good) if individual else
+    exact_closed=[]
+    if provider=='mercor' and summary['jobs_removed']>0:
+        collected=[event['data']['result'] for event in events if event['event']=='collected_result']
+        records=collected[0].get('source_records',[]) if len(collected)==1 else []
+        closed=[record for record in records if record.get('contract_id')=='mercor_public_page_availability_v1'
+            and record.get('state')=='closed' and type(record.get('known_job_id')) is int]
+        changed={job['job_id'] for job in state['jobs'] if job['job_id'] in before
+            and before[job['job_id']]['verification']['status']!='inactive'
+            and job['verification']['status']=='inactive'}
+        if (len(closed)==summary['jobs_removed']==len(changed)
+                and {record['known_job_id'] for record in closed}==changed):exact_closed=closed
+    qualifies=valid and (bool(good or exact_closed) if individual else
         summary['snapshot_complete'] and summary['pagination_complete'] and run.get('status')=='success')
     row.update(qualifying_observation=bool(qualifies),outcome=('partial_individual' if individual else 'complete') if qualifies else 'partial_or_failed',
         observed=summary['jobs_found'],new=summary['jobs_new'],confirmed_closed=summary['jobs_removed'])
@@ -230,12 +367,13 @@ def summarize_source(plan,report,started,ended):
     row['reconfirmed']=max(0,len(good)-row['new']-row['changed'])
     active=[j for j in state['jobs'] if j['verification']['status']!='inactive']
     row['missing']=sum(j['job_id'] not in observed_ids for j in active)
-    row['uncertain']=summary['rejected_record_count']+max(0,summary['jobs_found']-len(good))
+    row['uncertain']=max(0,summary['rejected_record_count']-len(exact_closed))+max(0,summary['jobs_found']-len(good))
     dates=Counter(j['verification'].get('latest_successful_source_run_at') for j in active)
     row['cohorts']=[dict(verified_at=date,records=count,expires_at=stamp(parse(date)+timedelta(hours=72)) if date else None)
         for date,count in sorted(dates.items(),key=lambda p:p[0] or '')]
     row['stale']=sum(c['records'] for c in row['cohorts'] if not c['verified_at'] or ended-parse(c['verified_at'])>timedelta(hours=72))
     qualifying_dates=[j['verification']['latest_successful_source_run_at'] for j in good]
+    qualifying_dates.extend(record['observed_at'] for record in exact_closed)
     row['last_qualifying_verification']=max(qualifying_dates,default=None) if qualifies else None
     deadlines=[c['expires_at'] for c in row['cohorts'] if c['expires_at']]
     row['next_verification_deadline']=min(deadlines,default=None)
@@ -289,7 +427,7 @@ def cycle_failure(receipt):
     failure=(receipt.get('recovery_failure_diagnostic') if receipt.get('outcome')=='recovery_failed'
         else receipt.get('failure_diagnostic')) or {}
     phase=failure.get('phase')
-    phases={'collection','publication','prepare','backup','finish','stop','restore',
+    phases={'collection','publication','prepare','prepare-backup','backup','finish','stop','restore',
         *('collect-'+source for source in SOURCES),*('publish-'+source for source in SOURCES)}
     if phase not in phases:return None
     return dict(phase=phase,reason=failure.get('reason') if failure.get('reason') in maintenance.FAILURE_REASONS else None,
@@ -350,7 +488,7 @@ def read_source_state(config,source):
     return source_state(config,source)
 
 
-def collect_phase(config, run_id, phase):
+def collect_phase(config, run_id, phase, *, expected_preparation_sha256=None):
     """One backup, independently bounded source processes, one integrity finish.
 
     Native parent holds the common operation gate throughout. Publication obtains
@@ -362,7 +500,21 @@ def collect_phase(config, run_id, phase):
     database=Path(config['database']);directory=Path(config['state_directory']);target=directory/'runs'/run_id
     from wahojobs.crawler import staged_observation as staged
     from wahojobs import availability_recovery as targeted
-    selected=targeted.selected(read_json(target/'run.json',{}))
+    run_receipt=read_json(target/'run.json',{})
+    validate_repair_binding(config,run_receipt)
+    availability=targeted.selected(run_receipt)
+    selected=selected_sources(run_receipt)
+    if phase=='prepare-backup':
+        # The native parent retains the operation gate while the application
+        # remains online. Evidence preparation takes no SQLite lifetime lease.
+        from wahojobs.beta_recovery import _prepare_snapshot_journal, _json
+        prepared=directory/'backups'/(run_id+'.prepared')
+        prepared.parent.mkdir(parents=True,exist_ok=True)
+        result=_prepare_snapshot_journal(database,prepared,run_id=run_id,
+            code_commit=config['code_commit'],configuration_revision='config-002')
+        write_json(target/'journal-preparation.json',dict(path=str(prepared),run_id=run_id,
+            code_commit=config['code_commit'],prepared_at=stamp(now()),files=len(result['files'])))
+        return dict(prepared_sha256=sha256(_json(result)).hexdigest())
     if phase=='prepare':
         # Read-only source/configuration inspection is safe while beta owns the
         # database. No database copy or offline lifetime lease is taken here.
@@ -384,13 +536,18 @@ def collect_phase(config, run_id, phase):
         if source not in SOURCES or not schedule or schedule[source]['state']!='due' or not source_settings(config)[source]['enabled']:
             raise ValueError('source_not_due_in_reserved_plan')
         with maintenance.read_connection(database) as connection:
-            company=connection.execute('SELECT careers_url FROM companies WHERE slug=?',(source,)).fetchone()
+            company=connection.execute('SELECT id,careers_url FROM companies WHERE slug=?',(source,)).fetchone()
+            known_jobs=None
+            if company and source=='mercor':
+                from wahojobs.mercor_availability import load_known_jobs
+                known_jobs=load_known_jobs(connection,company['id'])
         if not company:raise ValueError('configured_source_required')
         binding=maintenance.journal_binding(database)
         if not binding or Path(binding['journal_root'])!=Path(config['journal']):raise ValueError('authoritative_journal_mismatch')
         staged.collect(source,company['careers_url'],target,run_id=run_id,code_commit=config['code_commit'],
-            http_max=min(source_settings(config)[source]['http_max'],targeted.CAPS[source]) if selected else source_settings(config)[source]['http_max'],
-            journal_root=config['journal'],**({'audit_sink':lambda event:targeted.audit(target,source,event)} if selected else {}))
+            http_max=min(source_settings(config)[source]['http_max'],targeted.CAPS[source]) if availability else source_settings(config)[source]['http_max'],
+            journal_root=config['journal'],**({'known_jobs':known_jobs} if known_jobs is not None else {}),
+            **({'audit_sink':lambda event:targeted.audit(target,source,event)} if availability else {}))
         return
     publishing=phase.startswith('publish-')
     if publishing:phase=phase.removeprefix('publish-')
@@ -403,7 +560,11 @@ def collect_phase(config, run_id, phase):
             before=protected_domains(database)
             snapshot=directory/'backups'/run_id
             snapshot.parent.mkdir(parents=True,exist_ok=True)
-            create_snapshot(database,snapshot,code_commit=config['code_commit'],configuration_revision='config-002',ownership=lease)
+            prepared=directory/'backups'/(run_id+'.prepared')
+            create_snapshot(database,snapshot,code_commit=config['code_commit'],configuration_revision='config-002',ownership=lease,
+                **({'prepared_journal':prepared,'run_id':run_id,
+                    'expected_preparation_sha256':expected_preparation_sha256}
+                    if run_receipt.get('prepared_backup_required') is True or prepared.exists() else {}))
             manifest=verify_snapshot(snapshot)
             write_json(target/'backup.json',dict(verified=True,files=len(manifest['files']),protected_domains=before))
             if not read_json(target/'coverage-plan.json'):
@@ -605,7 +766,9 @@ def _disabled_coverage(config,provider,source):
 
 def source_condition(source):
     """One reporting boundary for receipt states, never an evidence upgrade."""
-    if source.get('qualifying_observation') is True:return None
+    if source.get('qualifying_observation') is True:
+        pending=source.get('pending_qualification_count')
+        return 'undercoverage' if type(pending) is int and pending>0 else None
     outcome=source.get('outcome')
     if outcome in ('blocked','disabled','not_started','cooldown','not_targeted'):return 'coverage'
     if outcome in ('accounting_unavailable','receipt_finalization_failed'):return 'accounting'
@@ -653,6 +816,9 @@ def health_issues(config,at,*,application_ready=None):
         issues['run:failed']=dict(severity='error',reason='failed_publication_or_recovery',run_id=latest['run_id'])
     if latest and latest.get('ended_at') and latest.get('outcome') in SUCCESSFUL_RUN_OUTCOMES and not _valid_source_rows(latest):
         issues['run:failed']=dict(severity='error',reason='invalid_source_receipt',run_id=latest['run_id'])
+    repair=latest_operator_repair(config,at)
+    if repair and repair['resolves_daily_failure'] and latest is not None:
+        issues.pop('run:failed',None)
     # The historical outbox intentionally never retries ambiguous delivery.
     # Keep that loss of notification visible in stored health state.
     prior=read_json(directory/'health.json',{'events':[]})
@@ -677,8 +843,8 @@ def health_issues(config,at,*,application_ready=None):
                 issues[provider+':unverified']=dict(severity='error',reason='no_daily_qualifying_observation_record',
                     corrective_action='Check the expected run and source evidence; do not infer a complete empty inventory.')
             missing.append(provider)
-        elif not source.get('qualifying_observation'):
-            if policy['readiness']=='ready' and not source.get('cohorts'):missing.append(provider)
+        elif source_condition(source) is not None:
+            if not source.get('qualifying_observation') and policy['readiness']=='ready' and not source.get('cohorts'):missing.append(provider)
             kind=source_condition(source)
             if kind=='coverage':
                 issues[provider+':coverage']=dict(severity='warning',reason=source['outcome'],
@@ -690,6 +856,7 @@ def health_issues(config,at,*,application_ready=None):
                     'accounting':'Inspect retained run and source receipts; attempt status must not be inferred from missing accounting.',
                     'qualification':'Inspect retained observation and qualification decisions; no freshness or closure may be inferred from a rejected observation.',
                     'publication':'Inspect retained publication evidence and the original capture; do not replay it to renew verification.',
+                    'undercoverage':'Inspect the retained pending IDs and detail outcomes; only qualifying exact records were refreshed.',
                     'collection':('Resolve authorized access to the existing endpoint, then perform bounded validation.'
                         if attempt.get('status')==403 else
                         'Inspect the retained failed collection before a bounded authorized validation.')}
@@ -697,6 +864,7 @@ def health_issues(config,at,*,application_ready=None):
                     last_attempt_at=attempt.get('at'),http_status=attempt.get('status'),
                     attempt_started=source.get('attempt_started','yes' if attempt.get('at') else 'unknown'),
                     corrective_action=actions[kind])
+                if kind=='undercoverage':issues[provider+':'+kind]['pending_records']=source['pending_qualification_count']
         if source and source.get('abnormal_count_drop'):
             issues[provider+':count_drop']=dict(severity='error',reason='observed_record_count_dropped',observed=source['observed'])
         for cohort in (source or {}).get('cohorts',[]):
@@ -734,10 +902,10 @@ def _current_cycle(config,at):
             run_id=receipt.get('run_id'),outcome=outcome,qualified_sources=[],failed_sources=[],failure=cycle_failure(receipt))
     qualified=sorted(source for source,row in sources.items() if row.get('qualifying_observation') is True)
     groups={kind:sorted(source for source,row in sources.items() if source_condition(row)==kind)
-            for kind in ('collection','accounting','qualification','publication','coverage')}
+            for kind in ('collection','accounting','qualification','publication','coverage','undercoverage')}
     failed=groups['collection']
     if outcome in SUCCESSFUL_RUN_OUTCOMES:
-        state='partial' if any(groups[k] for k in ('collection','accounting','qualification','publication')) else 'complete'
+        state='partial' if any(groups[k] for k in ('collection','accounting','qualification','publication','undercoverage')) else 'complete'
     elif _published_partial_cycle(config,receipt):state='partial'
     elif outcome in ('running','reserved'):state='running'
     else:state='failed'
@@ -746,6 +914,7 @@ def _current_cycle(config,at):
         reporting_reconciliation=receipt.get('reporting_reconciliation'),
         accounting_unavailable_sources=groups['accounting'],qualification_failed_sources=groups['qualification'],
         publication_failed_sources=groups['publication'],not_attempted_sources=groups['coverage'],
+        undercovered_sources=groups['undercoverage'],
         requests_used=(sum(row['requests_used'] for row in sources.values())
             if sources and all(type(row.get('requests_used')) is int for row in sources.values()) else None),
         known_requests_used=sum((row.get('requests_used') or 0) for row in sources.values()),
@@ -764,7 +933,7 @@ def _health_context(config,issues,at):
         if row and row.get('qualifying_observation') is True and source_settings(config)[source]['enabled']:
             qualified.append(source)
     affected=sorted({key.split(':',1)[0] for key in issues if key.split(':',1)[0] in SOURCES})
-    return dict(checked_at=stamp(at),cycle=_current_cycle(config,at),qualified_sources=qualified,
+    return dict(checked_at=stamp(at),cycle=_current_cycle(config,at),operator_repair=latest_operator_repair(config,at),qualified_sources=qualified,
         active_incidents=len(issues),affected_sources=affected,
         blocked_sources=sorted(source for source in SOURCES if POLICY[source]['readiness']=='blocked'),
         disabled_sources=sorted(source for source in SOURCES if not source_settings(config)[source]['enabled']
@@ -779,14 +948,18 @@ def _genuine_resolution(config,key,at,previous_check=None,application_ready=None
     provider,_,kind=key.partition(':')
     if provider in SOURCES:
         state=read_source_state(config,provider) or {}
-        if kind in ('collection','coverage','accounting','qualification','publication','count_drop') or kind.startswith('cohort_'):
+        if kind in ('collection','coverage','accounting','qualification','publication','count_drop','undercoverage') or kind.startswith('cohort_'):
             verified=state.get('ended_at')
             return bool(source_settings(config)[provider]['enabled'] and state.get('qualifying_observation') is True
+                and (kind!='undercoverage' or not state.get('pending_qualification_count'))
                 and verified and previous_check and parse(verified)>parse(previous_check))
         return False
     if key in ('run:missing','run:unreadable'):
         return _current_cycle(config,at)['state'] in ('complete','partial')
-    if key=='run:failed':return _current_cycle(config,at)['state']=='complete'
+    if key=='run:failed':
+        repair=latest_operator_repair(config,at)
+        return (_current_cycle(config,at)['state']=='complete' or bool(repair and repair['resolves_daily_failure']
+            and (not previous_check or parse(repair['ended_at'])>parse(previous_check))))
     if key=='inventory:unreadable':return _baseline_cohorts(config,['mercor']) is not None
     return False
 
@@ -940,11 +1113,11 @@ def merge_source_history(summary,previous):
     summary['abnormal_count_drop']=(previous.get('abnormal_count_drop',False) if observed is None else
         bool(baseline>=10 and observed<baseline*.5))
     summary['count_baseline']=baseline if observed is None or summary['abnormal_count_drop'] else observed
-    if not summary['cohorts']:
+    if not summary['cohorts'] and not summary.get('qualifying_observation'):
         summary['cohorts']=previous.get('cohorts',[])
     if not summary['last_qualifying_verification']:
         summary['last_qualifying_verification']=previous.get('last_qualifying_verification')
-    if not summary['next_verification_deadline']:
+    if not summary['next_verification_deadline'] and not summary.get('qualifying_observation'):
         summary['next_verification_deadline']=previous.get('next_verification_deadline')
     if summary.get('qualifying_observation') is True:
         summary.pop('last_failed_collection_plan_id',None)
@@ -1026,10 +1199,13 @@ def finish_run_sources(config,receipt):
     """
     directory=Path(config['state_directory']);target=directory/'runs'/receipt['run_id']
     rows={}
-    from wahojobs.availability_recovery import selected
-    for provider in selected(receipt) or SOURCES:
+    for provider in selected_sources(receipt) or SOURCES:
         previous=_retain_old_failure(config,provider,read_source_state(config,provider) or {})
         newer_state=previous.get('run_id','')>receipt['run_id']
+        if previous.get('run_id')==receipt['run_id']:newer_state=False
+        elif previous.get('started_at') and receipt.get('started_at'):
+            try:newer_state=parse(previous['started_at'])>parse(receipt['started_at'])
+            except (TypeError,ValueError):pass
         history={} if newer_state else previous
         try:
             row=read_json(target/(provider+'.json'))

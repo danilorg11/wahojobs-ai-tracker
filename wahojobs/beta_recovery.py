@@ -25,6 +25,8 @@ from wahojobs.workos_authkit_staging import validate_workos_authkit_staging_data
 VERSION = 'private_beta_cold_snapshot_v1'
 MAX_FILES = 10000
 MAX_MANIFEST_BYTES = 8_000_000
+PREPARATION_VERSION = 'private_beta_journal_preparation_v1'
+MAX_PREPARATION_AGE_SECONDS = 900
 
 
 def _file(path):
@@ -112,7 +114,7 @@ def _check_sqlite(path, *, product=False, companion=False, read_only=True):
             _attest(connection)
 
 
-def _inventory(database, companion, *, validate_journal=True):
+def _inventory(database, companion, *, validate_journal=True, binding_output=None):
     files = {'product.sqlite3': database}
     from wahojobs.storage_relocation import LINEAGE, HOLD, sidecar, relocation_binding
     if sidecar(database, LINEAGE).exists():
@@ -154,6 +156,8 @@ def _inventory(database, companion, *, validate_journal=True):
             _validate_journal(root)
     if len(files) > MAX_FILES:
         raise ValueError('recovery_snapshot_file_limit')
+    if binding_output is not None:
+        binding_output.append(binding)
     return files
 
 
@@ -163,26 +167,148 @@ def _validate_journal(root):
             report(root, path.name)
 
 
-def _create_snapshot(database, destination, *, companion=None, code_commit, configuration_revision, ownership=None):
-    """Snapshot quiescent storage; never inspect or copy runtime configuration.
-
-    code_commit and configuration_revision are operator-selected nonsecret labels.
-    The snapshot contains private candidate data and requires private OS storage.
-    """
+def _release_labels(code_commit, configuration_revision, run_id=None):
     import re
     if (not isinstance(code_commit, str) or not re.fullmatch('[a-f0-9]{40}', code_commit)
             or not isinstance(configuration_revision, str)
             or not re.fullmatch('[A-Za-z0-9_.-]{1,80}', configuration_revision)):
         raise ValueError('recovery_nonsecret_release_labels_required')
+    if run_id is not None and (not isinstance(run_id, str)
+            or not re.fullmatch('[A-Za-z0-9_][A-Za-z0-9_.-]{0,127}', run_id)):
+        raise ValueError('recovery_preparation_binding_invalid')
+
+
+def _journal_files(files):
+    return {name: path for name, path in files.items()
+            if name == 'maintenance-pin.json' or name.startswith('journal/')}
+
+
+def _records(files):
+    return {name: dict(identity=database_identity(path), sha256=_hash(path))
+            for name, path in files.items()}
+
+
+def _bound_inventory(database, companion=None):
+    binding = []
+    files = _inventory(database, companion, validate_journal=False, binding_output=binding)
+    return files, binding[0]
+
+
+def _prepare_snapshot_journal(database, destination, *, run_id, code_commit, configuration_revision):
+    """Stage only immutable evidence while the caller holds the operation gate.
+
+    The native supervisor lends its verified gate to its worker. Standalone
+    callers use prepare_snapshot_journal, which acquires that gate itself.
+    Runtime user writes remain available; no SQLite contents are read or copied.
+    """
+    _release_labels(code_commit, configuration_revision, run_id)
+    if run_id is None:
+        raise ValueError('recovery_preparation_binding_invalid')
+    database = local_database_path(database)
+    identity = database_identity(database)
+    inventory, binding = _bound_inventory(database)
+    sources = _journal_files(inventory)
+    if binding and Path(destination).is_relative_to(Path(binding['journal_root'])):
+        raise ValueError('recovery_preparation_binding_invalid')
+    before = _records(sources)
+    target = _new_directory(destination)
+    for name, path in sources.items():
+        output = target / name
+        output.parent.mkdir(parents=True, exist_ok=True)
+        with path.open('rb') as src, output.open('xb') as dst:
+            shutil.copyfileobj(src, dst)
+            dst.flush()
+            os.fsync(dst.fileno())
+        if _hash(output) != before[name]['sha256']:
+            raise ValueError('recovery_source_changed')
+    if any(name.startswith('journal/') for name in sources):
+        _validate_journal(target / 'journal')
+    after_inventory, after_binding = _bound_inventory(database)
+    after = _records(_journal_files(after_inventory))
+    if before != after or identity != database_identity(database) or binding != after_binding:
+        raise ValueError('recovery_source_changed')
+    receipt = dict(version=PREPARATION_VERSION, run_id=run_id, code_commit=code_commit,
+        configuration_revision=configuration_revision, database=identity,
+        journal_binding=binding, files=before, created_at=datetime.now(timezone.utc).isoformat())
+    raw = _json(receipt)
+    if len(raw) > MAX_MANIFEST_BYTES:
+        raise ValueError('recovery_manifest_limit')
+    _write(target / 'PREPARED.json', raw)
+    _write(target / 'PREPARED.sha256', (sha256(raw).hexdigest() + '\n').encode())
+    return receipt
+
+
+def prepare_snapshot_journal(database, destination, **options):
+    """Prepare evidence online without acquiring product lifetime ownership."""
+    from wahojobs.maintenance_gate import operation_gate
+    with operation_gate(database):
+        return _prepare_snapshot_journal(database, destination, **options)
+
+
+def _prepared_journal(prepared, database, sources, *, binding, run_id, code_commit, configuration_revision,
+                      expected_preparation_sha256):
+    prepared = Path(prepared)
+    path = _file(prepared / 'PREPARED.json')
+    if path.stat().st_size > MAX_MANIFEST_BYTES:
+        raise ValueError('recovery_manifest_limit')
+    raw = path.read_bytes()
+    # This digest comes directly from the successful preparation call (or its
+    # worker pipe), never from a mutable on-disk reference. The disk checksum
+    # alone is not authority to skip journal chain validation in the cold phase.
+    digest = sha256(raw).hexdigest()
+    if (digest != expected_preparation_sha256
+            or digest != _file(prepared / 'PREPARED.sha256').read_text().strip()):
+        raise ValueError('recovery_preparation_integrity_failed')
+    receipt = json.loads(raw)
+    if (receipt.get('version') != PREPARATION_VERSION or receipt.get('run_id') != run_id or run_id is None
+            or receipt.get('code_commit') != code_commit or receipt.get('configuration_revision') != configuration_revision
+            or receipt.get('database') != database_identity(database)
+            or receipt.get('journal_binding') != binding
+            or receipt.get('files') != _journal_files(sources)):
+        raise ValueError('recovery_preparation_binding_invalid')
+    try:
+        age = (datetime.now(timezone.utc) - datetime.fromisoformat(receipt['created_at'])).total_seconds()
+    except (ValueError, TypeError, KeyError):
+        raise ValueError('recovery_preparation_binding_invalid') from None
+    if not 0 <= age <= MAX_PREPARATION_AGE_SECONDS:
+        raise ValueError('recovery_preparation_expired')
+    actual = set()
+    for member in prepared.rglob('*'):
+        if member.is_symlink() or getattr(member.lstat(), 'st_file_attributes', 0) & 0x400:
+            raise ValueError('recovery_unsafe_journal')
+        if member.is_file():
+            actual.add(member.relative_to(prepared).as_posix())
+            _file(member)
+    if actual != {*receipt['files'], 'PREPARED.json', 'PREPARED.sha256'}:
+        raise ValueError('recovery_preparation_integrity_failed')
+    for name, record in receipt['files'].items():
+        if _hash(prepared / name) != record['sha256']:
+            raise ValueError('recovery_preparation_integrity_failed')
+    return receipt
+
+
+def _create_snapshot(database, destination, *, companion=None, code_commit, configuration_revision, ownership=None,
+                     prepared_journal=None, run_id=None, expected_preparation_sha256=None):
+    """Snapshot current quiescent storage, optionally adopting prepared evidence.
+
+    Preparation never supplies a database or the protected-domain baseline.
+    The finished artifact retains the existing independently restorable v1 format.
+    """
+    _release_labels(code_commit, configuration_revision, run_id)
     database = local_database_path(database)
     from wahojobs.database_lifetime_ownership import require_database_lifetime_ownership
     lease = ownership or acquire_database_lifetime_ownership(database, role=ROLE_OFFLINE_OPERATOR)
     require_database_lifetime_ownership(lease, role=ROLE_OFFLINE_OPERATOR, database_path=database)
     cold_connections = []
     try:
-        sources = _inventory(database, companion, validate_journal=False)
-        before = {name: dict(identity=database_identity(path), sha256=_hash(path))
-                  for name, path in sources.items()}
+        sources, binding = _bound_inventory(database, companion)
+        before = _records(sources)
+        if prepared_journal is not None:
+            _prepared_journal(prepared_journal, database, before, binding=binding, run_id=run_id,
+                code_commit=code_commit, configuration_revision=configuration_revision,
+                expected_preparation_sha256=expected_preparation_sha256)
+            if Path(prepared_journal).stat().st_dev != Path(destination).parent.stat().st_dev:
+                raise ValueError('recovery_preparation_same_filesystem_required')
         for name, path in sources.items():
             if name.endswith('.sqlite3'):
                 _check_sqlite(path, product=name == 'product.sqlite3', companion=name == 'companion.sqlite3', read_only=False)
@@ -190,7 +316,13 @@ def _create_snapshot(database, destination, *, companion=None, code_commit, conf
                 cold_connections.append(cold)
                 cold.execute('BEGIN EXCLUSIVE')
         target = _new_directory(destination)
+        if prepared_journal is not None and any(name.startswith('journal/') for name in sources):
+            # Atomic same-filesystem adoption keeps the validated artifact bytes
+            # and avoids another full history copy while the app is unavailable.
+            (Path(prepared_journal) / 'journal').rename(target / 'journal')
         for name, path in sources.items():
+            if prepared_journal is not None and name.startswith('journal/'):
+                continue
             output = target / name
             output.parent.mkdir(parents=True, exist_ok=True)
             with path.open('rb') as src, output.open('xb') as dst:
@@ -204,7 +336,7 @@ def _create_snapshot(database, destination, *, companion=None, code_commit, conf
         # inventory below still checks all paths, membership, identities and
         # hashes. This binds the chain proof to the backup without decoding the
         # growing historical chains twice during the unavailable interval.
-        if any(name.startswith('journal/') for name in sources):
+        if prepared_journal is None and any(name.startswith('journal/') for name in sources):
             _validate_journal(target / 'journal')
         after_sources = _inventory(database, companion, validate_journal=False)
         after = {name: dict(identity=database_identity(path), sha256=_hash(path))

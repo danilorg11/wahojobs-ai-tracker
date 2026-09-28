@@ -3,7 +3,7 @@
 Requires an explicitly activated, root-owned policy. Nothing runs on import.
 """
 import argparse
-from contextlib import suppress
+from contextlib import suppress, nullcontext
 from datetime import timedelta
 import json
 import os
@@ -12,6 +12,7 @@ import signal
 import subprocess
 import sys
 import time
+import tempfile
 
 ROOT=Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:sys.path.insert(0,str(ROOT))
@@ -46,7 +47,7 @@ def _stop_group(proc,grace=3):
     if _live_group(proc.pid):raise RuntimeError('worker_group_not_quiescent')
 
 
-def bounded_process(args,*,timeout,cwd=ROOT,user=None):
+def bounded_process(args,*,timeout,cwd=ROOT,user=None,capture_output=False):
     """Terminate the entire worker group before attempting normal-service recovery."""
     if timeout<=0:raise TimeoutError('execution_deadline_expired')
     options={}
@@ -54,15 +55,23 @@ def bounded_process(args,*,timeout,cwd=ROOT,user=None):
         import pwd
         account=pwd.getpwnam(user)
         options=dict(user=account.pw_uid,group=account.pw_gid,extra_groups=[])
-    proc=subprocess.Popen(args,cwd=cwd,stdin=subprocess.DEVNULL,stdout=subprocess.DEVNULL,
-        stderr=subprocess.DEVNULL,env={'PATH':'/usr/bin:/bin','PYTHONDONTWRITEBYTECODE':'1'},
-        start_new_session=True,**options)
-    try:
-        if proc.wait(timeout=max(.01,timeout))!=0:raise RuntimeError('bounded_process_failed')
-        if _live_group(proc.pid):raise RuntimeError('worker_left_live_child')
-    except BaseException:
-        _stop_group(proc)
-        raise
+    # A parent-owned anonymous file avoids pipe deadlocks and never accepts a
+    # beta-writable pathname as the trusted inter-process preparation proof.
+    with tempfile.TemporaryFile() if capture_output else nullcontext(None) as output:
+        proc=subprocess.Popen(args,cwd=cwd,stdin=subprocess.DEVNULL,
+            stdout=output if output is not None else subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,env={'PATH':'/usr/bin:/bin','PYTHONDONTWRITEBYTECODE':'1'},
+            start_new_session=True,**options)
+        try:
+            if proc.wait(timeout=max(.01,timeout))!=0:raise RuntimeError('bounded_process_failed')
+            if _live_group(proc.pid):raise RuntimeError('worker_left_live_child')
+        except BaseException:
+            _stop_group(proc)
+            raise
+        if output is not None:
+            output.seek(0);raw=output.read(4097)
+            if len(raw)>4096:raise ValueError('worker_output_too_large')
+            return raw.decode('ascii')
 
 
 def private_policy(path):
@@ -190,7 +199,8 @@ def claim_worker(config,run_id,phase):
 
 
 class NativeOperations:
-    def __init__(self,config,policy):self.config=config;self.policy=policy
+    def __init__(self,config,policy):
+        self.config=config;self.policy=policy;self.prepared_digests={}
     def preflight(self):
         verify_runtime(self.config)
         from wahojobs.diagnostic_archive import archive_preflight
@@ -213,8 +223,22 @@ class NativeOperations:
         daily.write_json(target,receipt)
         started=time.monotonic()
         try:
-            bounded_process([sys.executable,'-B',str(Path(__file__).resolve()),'worker','--policy',str(self.policy),
-                '--run-id',run_id,'--phase',phase],timeout=deadline-time.monotonic(),user='wahojobs-beta')
+            arguments=[sys.executable,'-B',str(Path(__file__).resolve()),'worker','--policy',str(self.policy),
+                '--run-id',run_id,'--phase',phase]
+            if phase=='backup':
+                expected=self.prepared_digests.get(run_id)
+                if expected is None:raise ValueError('trusted_journal_preparation_required')
+                arguments.extend(['--prepared-sha256',expected])
+            output=bounded_process(arguments,timeout=deadline-time.monotonic(),user='wahojobs-beta',
+                **({'capture_output':True} if phase=='prepare-backup' else {}))
+            if phase=='prepare-backup':
+                import re
+                proof=json.loads(output)
+                if (not isinstance(proof,dict) or set(proof)!={'run_id','prepared_sha256'}
+                        or proof['run_id']!=run_id or not isinstance(proof['prepared_sha256'],str)
+                        or not re.fullmatch('[a-f0-9]{64}',proof['prepared_sha256'])):
+                    raise ValueError('trusted_journal_preparation_required')
+                self.prepared_digests[run_id]=proof['prepared_sha256']
         finally:
             receipt=daily.read_json(target)
             receipt.setdefault('phase_timings_seconds',{})[phase]=round(time.monotonic()-started,3)
@@ -245,6 +269,10 @@ class NativeOperations:
             weights[source]=min(20_000,max(1,len(observation.result.jobs),schedule[source].get('stored_records',0)))
         daily.write_json(target/'publication-sources.json',available)
         daily.write_json(target/'publication-weights.json',weights)
+        if available:
+            # Historical evidence work stays online and cannot consume the
+            # reserved cold-publication window or widen any source allowance.
+            self.phase(run_id,'prepare-backup',deadline-daily.PUBLICATION_SECONDS)
         return bool(available)
 
     def publish(self,run_id,remaining):
@@ -288,7 +316,10 @@ class NativeOperations:
             timeout=25,user='wahojobs-beta')
 
 
-def supervise(config,policy,trigger,*,operations=None,availability_sources=None):
+def supervise(config,policy,trigger,*,operations=None,availability_sources=None,repair_request=None,repair_sources=None):
+    if (repair_request is None)!=(repair_sources is None) or repair_request is not None and (
+            availability_sources is not None or trigger!='manual'):
+        raise ValueError('explicit_manual_repair_run_required')
     operations=operations or NativeOperations(config,policy)
     directory=Path(config['state_directory'])
     with operation_gate(config['database'],require_existing=isinstance(operations,NativeOperations)):
@@ -296,12 +327,16 @@ def supervise(config,policy,trigger,*,operations=None,availability_sources=None)
         operations.preflight()
         trigger_evidence=native_trigger() if trigger=='auto' else dict(trigger=trigger,provenance='explicit_runner_argument')
         trigger=trigger_evidence['trigger']
-        if availability_sources is not None:
+        if repair_request is not None:
+            operations.ready()
+            receipt=daily.reserve_repair_run(config,daily.now(),repair_request,repair_sources)
+        elif availability_sources is not None:
             from wahojobs.availability_recovery import reserve
             operations.ready()
             receipt=reserve(config,daily.now(),availability_sources)
         else:receipt=daily.reserve_run(directory,daily.now(),daily.parse(config['first_run_at']),trigger)
         if receipt is None:return {'outcome':'already_consumed_or_not_due'}
+        selected=daily.selected_sources(receipt)
         receipt['trigger_evidence']=trigger_evidence
         target=directory/'runs'/receipt['run_id']/'run.json'
         if receipt['outcome']=='missed_window':
@@ -313,10 +348,11 @@ def supervise(config,policy,trigger,*,operations=None,availability_sources=None)
             account=pwd.getpwnam('wahojobs-beta')
             os.chown(target.parent,account.pw_uid,account.pw_gid)
         allowance=daily.execution_seconds(config)
-        if availability_sources is not None:
-            allowance=min(allowance,20+daily.PUBLICATION_SECONDS+sum(daily.source_settings(config)[s]['seconds_max'] for s in availability_sources))
+        if selected is not None:
+            allowance=min(allowance,20+daily.PUBLICATION_SECONDS+sum(daily.source_settings(config)[s]['seconds_max'] for s in selected))
         start=time.monotonic();deadline=start+allowance
-        receipt.update(outcome='running',normal_service_resumed=True,supervisor_pid=os.getpid(),execution_deadline_monotonic=deadline)
+        receipt.update(outcome='running',normal_service_resumed=True,supervisor_pid=os.getpid(),execution_deadline_monotonic=deadline,
+            prepared_backup_required=isinstance(operations,NativeOperations))
         daily.write_json(target,receipt)
         maintenance_start=None;stage='collection'
         try:
@@ -341,7 +377,7 @@ def supervise(config,policy,trigger,*,operations=None,availability_sources=None)
             stage='publication'
             operations.publish(receipt['run_id'],publication_deadline-time.monotonic())
             worker=daily.read_json(target.parent/'worker.json')
-            summaries={source:daily.read_json(target.parent/(source+'.json')) for source in availability_sources or daily.SOURCES}
+            summaries={source:daily.read_json(target.parent/(source+'.json')) for source in selected or daily.SOURCES}
             receipt['sources']=summaries
             if not worker or worker.get('protected_domains_unchanged') is not True:
                 raise ValueError('worker_receipt_missing')
@@ -616,11 +652,24 @@ def main(argv=None):
     parser.add_argument('command',choices=('run','worker','recover','repair-storage','health','report','failure-signal'))
     parser.add_argument('--policy',type=Path,required=True)
     parser.add_argument('--trigger',choices=('auto','timer','manual','restart'),default='auto')
-    parser.add_argument('--phase',choices=('prepare','backup','finish',*('collect-'+s for s in daily.SOURCES),*('publish-'+s for s in daily.SOURCES)));parser.add_argument('--run-id');parser.add_argument('--deliver',action='store_true');parser.add_argument('--urgent',action='store_true')
+    parser.add_argument('--phase',choices=('prepare','prepare-backup','backup','finish',*('collect-'+s for s in daily.SOURCES),*('publish-'+s for s in daily.SOURCES)));parser.add_argument('--run-id');parser.add_argument('--deliver',action='store_true');parser.add_argument('--urgent',action='store_true')
     parser.add_argument('--availability-recovery',action='store_true')
-    parser.add_argument('--source',action='append',choices=('alignerr','mercor'))
+    parser.add_argument('--repair-request',help='Explicit once-only operator repair request ID; requires --trigger manual')
+    parser.add_argument('--all-enabled',action='store_true',help='For an explicit repair request, select every enabled ready source')
+    parser.add_argument('--source',action='append',choices=daily.SOURCES)
+    parser.add_argument('--prepared-sha256',help=argparse.SUPPRESS)
     args=parser.parse_args(argv)
-    if (args.availability_recovery or args.source) and (args.command!='run' or not args.availability_recovery or not args.source):
+    if args.prepared_sha256 is not None:
+        import re
+        if (args.command!='worker' or args.phase!='backup'
+                or not re.fullmatch('[a-f0-9]{64}',args.prepared_sha256)):
+            raise ValueError('trusted_journal_preparation_required')
+    if args.repair_request is not None:
+        if (args.command!='run' or args.trigger!='manual' or args.availability_recovery
+                or bool(args.source)==args.all_enabled):
+            raise ValueError('explicit_manual_repair_run_required')
+    elif args.all_enabled or (args.availability_recovery or args.source) and (
+            args.command!='run' or not args.availability_recovery or not args.source):
         raise ValueError('explicit_targeted_run_required')
     config=private_policy(args.policy)
     daily.validate_policy(config,activation=args.command in ('run','worker') or args.deliver)
@@ -632,12 +681,16 @@ def main(argv=None):
         if result and result!='success':daily.record_availability_failure(config,reason='application_service_'+result,unit=daily.SERVICE)
     elif args.command=='worker':
         import re
-        if not args.run_id or not re.fullmatch(r'\d{8}T060000Z(?:-availability)?',args.run_id):raise ValueError('run_identity_required')
+        if not args.run_id or not re.fullmatch(r'(?:\d{8}T060000Z(?:-availability)?|\d{8}T\d{6}Z-repair-[a-f0-9]{16})',args.run_id):raise ValueError('run_identity_required')
         if args.phase is None:raise ValueError('worker_phase_required')
         deadline=claim_worker(config,args.run_id,args.phase)
         from wahojobs.crawler.local_inventory import request_deadline
         try:
-            with request_deadline(deadline):daily.collect_phase(config,args.run_id,args.phase)
+            with request_deadline(deadline):
+                result=daily.collect_phase(config,args.run_id,args.phase,
+                    expected_preparation_sha256=args.prepared_sha256)
+            if args.phase=='prepare-backup':
+                print(json.dumps(dict(run_id=args.run_id,prepared_sha256=result['prepared_sha256'])),flush=True)
         except Exception as error:
             # Bound diagnostics persist even before a publication journal can
             # be created. Never retain exception values or response contents.
@@ -650,7 +703,11 @@ def main(argv=None):
     elif args.command=='run':
         def interrupted(*_):raise InterruptedError('supervisor_terminated')
         signal.signal(signal.SIGTERM,interrupted)
-        result=supervise(config,args.policy,args.trigger,availability_sources=args.source if args.availability_recovery else None)
+        repair_selection=([source for source in daily.SOURCES
+            if daily.source_settings(config)[source]['enabled'] and daily.POLICY[source]['readiness']=='ready']
+            if args.all_enabled else args.source) if args.repair_request is not None else None
+        result=supervise(config,args.policy,args.trigger,availability_sources=args.source if args.availability_recovery else None,
+            repair_request=args.repair_request,repair_sources=repair_selection)
         print(json.dumps(result))
         return 0 if result['outcome'] in (*daily.SUCCESSFUL_RUN_OUTCOMES,'already_consumed_or_not_due') else 2
     elif args.command=='health':

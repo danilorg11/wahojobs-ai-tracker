@@ -20,6 +20,12 @@ LEFT JOIN job_source_content_captures record_observation
         AND sc.record_promotion_contract_id = 'mercor_public_active_record_v1'
         AND sc.promotion_policy_version IN ('mercor_record_promotion_v1', 'mercor_record_promotion_v2')
         AND (sc.promotion_decision IN ('promoted', 'confirmed') OR (sc.promotion_policy_version = 'mercor_record_promotion_v2' AND sc.promotion_decision = 'held_degraded' AND sc.decision_reasons_json = '["summary_omits_compatible_supplemental_content"]')))
+      OR (c.slug = 'mercor' AND sc.source_type = 'mercor-marketplace'
+        AND sc.record_promotion_contract_id = 'mercor_public_page_active_record_v1'
+        AND sc.promotion_policy_version = 'job_source_promotion_v2'
+        AND sc.promotion_decision = 'held_degraded'
+        AND sc.decision_reasons_json = '["mercor_page_availability_only"]'
+        AND sc.provider_outcome = 'partial')
       OR (c.slug = 'dataannotation' AND sc.source_type = 'evergreen-application-pages'
         AND sc.record_promotion_contract_id IN ('dataannotation_coding_evergreen_record_v1', 'dataannotation_evergreen_role_record_v2')
         AND sc.promotion_policy_version = 'job_source_promotion_v2'

@@ -877,7 +877,8 @@ def _validate_outlier_index_detail_record_v1(
             or metadata['public_client_sha256'] != PUBLIC_PAGE_CHUNK_SHA256
             or evidence['public_url'] != candidate.url):
         raise ValueError('Outlier public record authority is inconsistent.')
-    indexed = [item for item in parse_index(index_payload) if item.get('id') == evidence['id']]
+    indexed = [item for item in parse_index(index_payload)
+               if type(item) is dict and str(item.get('id')) == str(evidence['id'])]
     if len(indexed) != 1 or indexed[0] != row:
         raise ValueError('Outlier exact index row is not attested.')
     parsed = qualify_index_detail(row, detail, index_payload, general=general)
@@ -1244,6 +1245,15 @@ def decide_source_promotion_v2(
             accepted_row,
             same_accepted_semantic_material=same_accepted_semantic_material,
         )
+    if record_attestation.contract_id == "mercor_public_page_active_record_v1":
+        # This independently dated page establishes availability only. Keep the
+        # accepted semantic predecessor, including supplemental pay evidence.
+        if accepted_row is None:
+            raise ValueError("mercor_page_requires_existing_accepted_content")
+        return SourcePromotionDecision(
+            PROMOTION_DECISION_HELD_DEGRADED, ("mercor_page_availability_only",),
+            _accepted_timestamp(accepted_row),
+        )
     if record_attestation.contract_id in {
         DATAANNOTATION_CODING_RECORD_CONTRACT_ID, DATAANNOTATION_ROLE_RECORD_CONTRACT_ID,
         DATAFORCE_INDEX_DETAIL_RECORD_CONTRACT_ID,
@@ -1491,6 +1501,7 @@ def decide_mercor_detail_content_promotion_v2(prepared, context, accepted_row, *
 # Historical capture and policy implementations are permanently pinned.  A
 # future current-version bump must add a new literal mapping rather than making
 # old captures follow mutable current behavior.
+from wahojobs.mercor_availability import POSITIVE_CONTRACT_ID as MERCOR_PAGE_CONTRACT, validate_positive_capture
 from wahojobs.mercor_supplemental import CONTRACT as SUPPLEMENTAL_CONTRACT, validate as validate_supplemental, decide as decide_supplemental
 from wahojobs.mindrift_observation import CONTRACT as MINDRIFT_CONTRACT, validate as validate_mindrift
 
@@ -1509,6 +1520,7 @@ RECORD_PROMOTION_CONTRACT_VALIDATORS = {
     OUTLIER_ROLE_FAMILY_RECORD_CONTRACT_ID: _validate_outlier_index_detail_record_v2,
     SUPPLEMENTAL_CONTRACT: validate_supplemental,
     "meridial_greenhouse_record_v1": _validate_meridial_greenhouse_record_v1,
+    MERCOR_PAGE_CONTRACT: validate_positive_capture,
     "mercor_public_active_record_v1": _validate_mercor_public_active_record_v1,
     "provider_detail_content_v1": _validate_provider_detail_content_v1,
 }
