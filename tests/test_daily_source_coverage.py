@@ -206,7 +206,11 @@ class CoveragePolicyTests(unittest.TestCase):
         for row in manifest['sources']:
             # The September 23 activation manifest is historical; later
             # individually reviewed sources keep their own versioned policy.
-            if row['source'] not in ('dataannotation','dataforce','handshake','surge','outlier','mercor'):
+            if row['source']=='alignerr':
+                historical=dict(policy.POLICY['alignerr'],endpoint_scope=[
+                    'GET https://www.alignerr.com/api/jobs?limit=120&offset=<validated offset>'])
+                self.assertEqual({k:row[k] for k in historical},historical)
+            elif row['source'] not in ('dataannotation','dataforce','handshake','surge','outlier','mercor'):
                 self.assertEqual({k:row[k] for k in policy.POLICY[row['source']]},policy.POLICY[row['source']])
         policy.validate_sources(example['sources'])
         self.assertFalse(example['enabled']);self.assertFalse(example['alert_delivery']['approved'])
