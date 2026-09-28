@@ -215,7 +215,8 @@ class CoveragePolicyTests(unittest.TestCase):
         self.assertEqual(manifest['aggregate']['http_max'],232)  # September 23 historical receipt
         self.assertIn('TimeoutStartSec='+str(policy.MAX_EXECUTION_SECONDS),(root/'wahojobs-inventory.service').read_text())
         self.assertIn('TimeoutStopSec='+str(daily.RECOVERY_SECONDS),(root/'wahojobs-inventory.service').read_text())
-        self.assertEqual(daily.PUBLICATION_SECONDS,240)
+        self.assertEqual(manifest['aggregate']['publication_seconds_max'],240)  # historical commissioning limit
+        self.assertEqual(daily.PUBLICATION_SECONDS,360)
         self.assertIn(':40:',(root/'wahojobs-inventory-health.timer').read_text())
 
     def test_policy_accounts_for_every_source_and_rejects_widening_or_blocked_activation(self):

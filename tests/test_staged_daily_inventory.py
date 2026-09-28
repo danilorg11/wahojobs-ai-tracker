@@ -113,6 +113,18 @@ class StagedIntegrationTests(unittest.TestCase):
 
 
 class StagedSupervisorTests(unittest.TestCase):
+    def test_publication_reservation_preserves_largest_source_collection_in_small_configs(self):
+        for source in ('appen','alignerr','mindrift'):
+            sources=daily.default_sources()
+            for name,row in sources.items():row['enabled']=name==source
+            config=dict(sources=sources)
+            with self.subTest(source=source):
+                daily.validate_sources(sources)
+                self.assertEqual(daily.publication_seconds(config),240)
+                self.assertEqual(daily.execution_seconds(config)-daily.publication_seconds(config),
+                    sources[source]['seconds_max'])
+        self.assertEqual(daily.publication_seconds(dict(sources=daily.default_sources())),360)
+
     def test_production_policy_budget_accepts_online_preparation_after_fast_collection(self):
         # Exact enabled-source budget of the September 28 operator repair.
         budgets=dict(alignerr=(100,240),appen=(1,60),dataannotation=(20,180),dataforce=(15,180),
@@ -127,12 +139,13 @@ class StagedSupervisorTests(unittest.TestCase):
             config=dict(state_directory=temp,sources=sources)
             target=Path(temp)/'runs/fixture';target.mkdir(parents=True)
             receipt=dict(run_id='fixture',outcome='running',supervisor_pid=123,
-                execution_deadline_monotonic=2580,active_phase=dict(name='prepare-backup',deadline=2340))
+                execution_deadline_monotonic=2580,active_phase=dict(name='prepare-backup',deadline=2580-daily.PUBLICATION_SECONDS))
             daily.write_json(target/'run.json',receipt)
-            # About 165 seconds of online collection has elapsed. The existing
-            # 240-second publication allowance remains reserved.
-            self.assertGreater(2340-165,daily.EXECUTION_SECONDS)
-            self.assertEqual(cli._claim_worker_deadline(config,'fixture','prepare-backup',123,165),2175)
+            # About 165 seconds of online collection has elapsed. Publication
+            # remains reserved inside, not added to, the overall native limit.
+            available=2580-daily.PUBLICATION_SECONDS-165
+            self.assertGreater(available,daily.EXECUTION_SECONDS)
+            self.assertEqual(cli._claim_worker_deadline(config,'fixture','prepare-backup',123,165),available)
             self.assertTrue((target/'prepare-backup-dispatch.claim').exists())
             with self.assertRaises(FileExistsError):
                 cli._claim_worker_deadline(config,'fixture','prepare-backup',123,165)
@@ -335,6 +348,40 @@ class StagedSupervisorTests(unittest.TestCase):
                 self.assertGreaterEqual(remaining-min(3,remaining/4),10)
                 self.assertGreater(caps['alignerr'],elapsed['alignerr']+3)
                 self.assertLess(clock[0],237.544)
+
+    def test_complete_history_growth_fits_fourteen_sources_with_backup_and_rollback_reserves(self):
+        # Measured Sep 28 full-pool jobs/history, including conservative headroom
+        # for the Alignerr worker that the former 240-second pool interrupted.
+        # This checks effective worker time, not just its outer process cap.
+        weights=dict(alignerr=5624,appen=32,dataannotation=10,dataforce=32,handshake=117,
+            mercor=457,meridial=832,mindrift=223,oneforma=458,outlier=8,rws=42,
+            surge=7,turing=275,welocalize=435)
+        elapsed=dict(alignerr=110,appen=4,dataannotation=5,dataforce=11,
+            handshake=8,mercor=14,meridial=22,mindrift=6,oneforma=14,
+            outlier=5,rws=4,surge=9,turing=11,welocalize=13)
+        with tempfile.TemporaryDirectory() as temp:
+            target=Path(temp)/'runs/fixture';target.mkdir(parents=True)
+            daily.write_json(target/'publication-sources.json',list(weights))
+            daily.write_json(target/'publication-weights.json',weights)
+            native=cli.NativeOperations(dict(state_directory=temp),'fixture')
+            clock=[0];attempted=[]
+            stop_seconds=3;available=daily.PUBLICATION_SECONDS-stop_seconds
+            def phase(run_id,name,deadline):
+                self.assertLessEqual(deadline,available)
+                if name=='backup':
+                    self.assertEqual(deadline,60);clock[0]+=45;return
+                if name=='finish':
+                    self.assertGreaterEqual(deadline-clock[0],20);clock[0]+=20;return
+                source=name.removeprefix('publish-');attempted.append(source)
+                cap=deadline-clock[0]
+                self.assertLess(elapsed[source],cap-3)  # full rollback reserve
+                self.assertLessEqual(deadline,available-30)
+                clock[0]+=elapsed[source]
+            with patch.object(cli.time,'monotonic',side_effect=lambda:clock[0]),patch.object(native,'phase',side_effect=phase):
+                native.publish('fixture',available)
+            self.assertEqual(set(attempted),set(weights));self.assertEqual(len(attempted),14)
+            self.assertLess(clock[0],available)
+            self.assertEqual(daily.RECOVERY_SECONDS,120)
 
     def test_publication_rejects_duplicate_or_invalid_source_allocations(self):
         cases=[(['appen','appen'],dict(appen=1)),(['unknown'],dict(unknown=1)),

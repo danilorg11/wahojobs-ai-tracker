@@ -23,7 +23,10 @@ EXECUTION_SECONDS=aggregate(default_sources())['execution_seconds']
 RECOVERY_SECONDS=120
 # The outage is bounded independently from the online network cycle. Stop,
 # cold backup, publication and integrity share this smaller execution allowance.
-PUBLICATION_SECONDS=240
+# The complete 14-source September 28 rehearsal outgrew the former four-minute
+# pool. Reserve six minutes within the unchanged overall execution ceiling;
+# worker rollback, 60-second backup and 120-second recovery stay independent.
+PUBLICATION_SECONDS=360
 CATCH_UP_SECONDS=3600
 VERSION='daily_inventory_v1_all_sources'
 SUCCESSFUL_RUN_OUTCOMES=('complete','partial_individual','complete_with_coverage_gaps')
@@ -524,6 +527,15 @@ def source_settings(config):
 
 def execution_seconds(config):
     return aggregate(source_settings(config))['execution_seconds']
+
+
+def publication_seconds(config):
+    # A small enabled-source configuration must still have time to collect its
+    # largest source. The six-minute full-inventory maximum does not increase
+    # the configured execution ceiling or starve one-source maintenance runs.
+    largest=max((row['seconds_max'] for row in source_settings(config).values()
+                 if row['enabled']),default=0)
+    return min(PUBLICATION_SECONDS,execution_seconds(config)-largest)
 
 
 def coverage_plan(config, database, at):

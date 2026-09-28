@@ -102,7 +102,7 @@ class DailyPackagedBackupIntegrationTests(unittest.TestCase):
         target=Path(self.config['state_directory'])/'runs'/receipt['run_id']
         self.assertEqual(daily.read_json(target/'backup.json')['snapshot_version'],VERSION)
         self.assertEqual(daily.read_json(target/'journal-preparation.json')['snapshot_version'],VERSION)
-        self.assertEqual((daily.PUBLICATION_SECONDS,daily.RECOVERY_SECONDS),(240,120))
+        self.assertEqual((daily.PUBLICATION_SECONDS,daily.RECOVERY_SECONDS),(360,120))
         if original_daily:self.assertEqual(original_daily[0].read_bytes(),original_daily[1])
 
     def test_scheduled_run_publishes_with_v2_preparation_and_direct_manifest_proof(self):

@@ -277,7 +277,7 @@ class NativeOperations:
         for source in daily.SOURCES:
             if schedule[source]['state']!='due':continue
             cap=daily.source_settings(self.config)[source]['seconds_max']
-            try:self.phase(run_id,'collect-'+source,min(deadline-daily.PUBLICATION_SECONDS,time.monotonic()+cap))
+            try:self.phase(run_id,'collect-'+source,min(deadline-daily.publication_seconds(self.config),time.monotonic()+cap))
             except InterruptedError:
                 raise  # SIGTERM cancels the whole run; restore without more dispatch.
             except Exception as error:
@@ -296,7 +296,7 @@ class NativeOperations:
         if available:
             # Historical evidence work stays online and cannot consume the
             # reserved cold-publication window or widen any source allowance.
-            self.phase(run_id,'prepare-backup',deadline-daily.PUBLICATION_SECONDS)
+            self.phase(run_id,'prepare-backup',deadline-daily.publication_seconds(self.config))
         return bool(available)
 
     def publish(self,run_id,remaining):
@@ -384,7 +384,7 @@ def supervise(config,policy,trigger,*,operations=None,availability_sources=None,
             os.chown(target.parent,account.pw_uid,account.pw_gid)
         allowance=daily.execution_seconds(config)
         if selected is not None:
-            allowance=min(allowance,20+daily.PUBLICATION_SECONDS+sum(daily.source_settings(config)[s]['seconds_max'] for s in selected))
+            allowance=min(allowance,20+daily.publication_seconds(config)+sum(daily.source_settings(config)[s]['seconds_max'] for s in selected))
         start=time.monotonic();deadline=start+allowance
         receipt.update(outcome='running',normal_service_resumed=True,supervisor_pid=os.getpid(),execution_deadline_monotonic=deadline,
             prepared_backup_required=isinstance(operations,NativeOperations))
@@ -394,7 +394,7 @@ def supervise(config,policy,trigger,*,operations=None,availability_sources=None,
             available=operations.collect(receipt['run_id'],deadline-time.monotonic())
             receipt['collection_finished_at']=daily.stamp(daily.now())
             if available is False:raise ValueError('no_completed_observations_to_publish')
-            publication_deadline=min(deadline,time.monotonic()+daily.PUBLICATION_SECONDS)
+            publication_deadline=min(deadline,time.monotonic()+daily.publication_seconds(config))
             if publication_deadline<=time.monotonic():raise TimeoutError('publication_deadline_expired')
             # The online phase never creates a maintenance marker or stops beta.
             measured=daily.read_json(target,{})
