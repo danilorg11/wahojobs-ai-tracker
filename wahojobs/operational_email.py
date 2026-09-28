@@ -180,11 +180,25 @@ def message(events,context=None):
     if repair:
         lines.append('Subsequent operator repair ('+_readable(repair.get('started_at'))+'): '+repair['state']+'. '+
             str(len(repair.get('qualified_sources',[])))+' of '+str(len(repair.get('selected_sources',[])))+
-            ' selected sources verified and published. The original scheduled-cycle receipt remains unchanged.')
+            ' selected sources verified and published in this repair. '+
+            (str(len(repair['recently_verified_sources']))+' previously verified source(s) deferred by the minimum interval. '
+                if repair.get('recently_verified_sources') else '')+
+            'The original scheduled-cycle receipt remains unchanged.')
         if repair.get('remaining_sources'):
             lines.append('Repair sources still requiring verification: '+', '.join(_name(s+':coverage') for s in repair['remaining_sources'])+'.')
         if repair.get('incomplete_sources'):
             lines.append('Repair sources with remaining posting verification: '+', '.join(_name(s+':coverage') for s in repair['incomplete_sources'])+'.')
+    recent=context.get('recent_verifications') or {}
+    if recent:
+        lines.append(str(len(recent))+' recently verified source'+('s' if len(recent)!=1 else '')+
+            ' deferred by the minimum collection interval; no new verification was claimed for the skipped check.')
+        checked=parse(context['checked_at'])
+        for source,proof in sorted(recent.items()):
+            eligibility=('Eligible again at '+_readable(proof['next_eligible_at'])+'.'
+                if checked<parse(proof['next_eligible_at']) else
+                'The minimum interval has elapsed; the next scheduled collection is shown below.')
+            lines.append(_name(source+':coverage')+': retained verification '+_readable(proof['verified_at'])+
+                '; collection deferred at '+_readable(proof['skipped_at'])+'. '+eligibility)
     if cycle.get('new_opportunities') is not None and state in ('partial','complete'):
         lines.append(f"Catalog impact: {cycle['new_opportunities']:,} newly published opportunities "
                      f"({cycle['new_variants']:,} variants); {cycle['changed_variants']:,} changed variants; "
@@ -216,6 +230,11 @@ def message(events,context=None):
     lines.extend(['','Events included in this notification: '+(', '.join(change) if change else 'no new change')+'.',''])
     for event in events:
         if event['kind']=='first_verified':continue
+        source=event['key'].split(':',1)[0]
+        if (event['key']==source+':coverage' and source in recent
+                and event.get('issue',{}).get('reason')=='cooldown'):
+            lines.append('- Historical '+_name(event['key'])+' cooldown alert: retained committed verification now confirms a permitted deferral; no new check or recovery is claimed.')
+            continue
         lines.append('- '+_event_line(event,resolved_application_at=resolved_at if event['key']=='application:unavailable' and parse(event['at'])<=parse(resolved_at or event['at']) else None))
     first=[_name(e['key']) for e in events if e['kind']=='first_verified']
     if first:lines.append('- First daily verification completed: '+', '.join(first)+'.')

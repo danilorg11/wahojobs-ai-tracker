@@ -5,6 +5,7 @@ These small operator receipts never change candidate eligibility or user data.
 """
 from collections import Counter
 from contextlib import closing
+from contextvars import ContextVar
 from datetime import datetime, timedelta, timezone
 from hashlib import sha256
 import json
@@ -206,6 +207,78 @@ def reserve_repair_run(config,at,request_id,sources):
     return receipt
 
 
+_cooldown_checks=ContextVar('daily_cooldown_checks',default=None)
+
+
+def verified_cooldown(config,source,at):
+    """Classify a retained skip; never renew its evidence or authorize collection.
+
+    Cache only during one health observation. Original publication proof is read
+    with the shared transaction reader, so a release change cannot erase a real
+    earlier verification, and a copied success timestamp cannot create one.
+    """
+    if not isinstance(source,dict) or source.get('outcome')!='cooldown':return None
+    cache=_cooldown_checks.get()
+    key=(str(config['state_directory']),maintenance.digest(source),stamp(at))
+    if cache is not None and key in cache:return cache[key]
+    result=None
+    try:result=_verified_cooldown(config,source,at)
+    except (OSError,ValueError,KeyError,TypeError,AttributeError,sqlite3.Error):pass
+    if cache is not None:cache[key]=result
+    return result
+
+
+def _verified_cooldown(config,source,at):
+    provider=source['provider'];policy=POLICY[provider]
+    if (provider not in SOURCES or not source_settings(config)[provider]['enabled']
+            or not policy.get('cooldown_hours') or source.get('reason')!='source_success_cooldown'
+            or source.get('qualifying_observation') is not False or source.get('requests_used')!=0
+            or source.get('plan_id') or source.get('collection_plan_id')
+            or source.get('pending_qualification_count') or source.get('missing')
+            or source.get('abnormal_count_drop')):return None
+    root=Path(config['state_directory']);run_id=source['run_id']
+    if Path(run_id).name!=run_id or run_id in ('.','..'):return None
+    schedule=read_json(root/'runs'/run_id/'coverage-plan.json',{}).get(provider,{})
+    if (schedule.get('state')!='cooldown' or schedule.get('reason')!=source.get('reason')
+            or source.get('next_eligible_at') not in (None,schedule.get('next_eligible_at'))):return None
+    skipped=parse(source['started_at']);due=parse(schedule['next_eligible_at'])
+    verified=parse(source['last_qualifying_verification'])
+    if not verified<=skipped<due or at<skipped:return None
+    cohorts=source.get('cohorts')
+    if not cohorts or any(not c.get('verified_at') or type(c.get('records')) is not int
+            or c['records']<=0 or not timedelta(0)<=at-parse(c['verified_at'])<timedelta(hours=72)
+            for c in cohorts):return None
+    with maintenance.read_connection(config['database']) as db:
+        latest=db.execute("""SELECT r.* FROM crawl_runs r JOIN companies c ON c.id=r.company_id
+            WHERE c.slug=? ORDER BY r.id DESC LIMIT 1""",(provider,)).fetchone()
+    if latest is None:return None
+    terminal=dict(latest)
+    if (terminal['status']!='success' or terminal['used_sample_data'] or terminal['error_message']
+            or parse(terminal['started_at'])+timedelta(hours=policy['cooldown_hours'])!=due):return None
+    # Source receipts are small; only a matching retained success opens journals.
+    for path in sorted((root/'runs').glob('*/'+provider+'.json'),reverse=True):
+        prior=read_json(path,{})
+        if (prior.get('qualifying_observation') is not True or prior.get('last_qualifying_verification')!=source['last_qualifying_verification']
+                or prior.get('cohorts')!=cohorts or not prior.get('ended_at')
+                or not verified<=parse(prior['ended_at'])<=skipped):continue
+        original=dict(run_id=path.parent.name,trigger=prior.get('trigger','timer'),
+            started_at=prior['started_at'],ended_at=prior['ended_at'])
+        proven=reconstruct_source_receipt(config,original,provider)
+        proof=proven.get('reconciliation_proof') or {}
+        if (proven.get('qualifying_observation') is not True
+                or proof.get('crawl_run_id')!=terminal['id']
+                or proof.get('terminal_crawl_row_sha256')!=maintenance.digest(terminal)
+                or not proof.get('prepared_event_hash')
+                or proven.get('pending_qualification_count') or proven.get('missing')
+                or proven.get('cohorts')!=cohorts
+                or proven.get('last_qualifying_verification')!=source['last_qualifying_verification']):continue
+        return dict(source=provider,verified_at=stamp(verified),published_at=prior['ended_at'],
+            original_run_id=path.parent.name,skipped_run_id=run_id,skipped_at=stamp(skipped),
+            next_eligible_at=stamp(due),reason='retained_success_cooldown',
+            crawl_run_id=terminal['id'])
+    return None
+
+
 def latest_operator_repair(config,at):
     """Show a separate repair outcome; never rewrite the scheduled run."""
     root=Path(config['state_directory']);candidates=[]
@@ -225,27 +298,36 @@ def latest_operator_repair(config,at):
             rows=receipt.get('sources') or {}
             qualified=sorted(s for s in sources if isinstance(rows.get(s),dict)
                 and rows[s].get('qualifying_observation') is True)
+            recent={s:proof for s in sources if (proof:=verified_cooldown(config,rows.get(s),at))}
+            covered=set(qualified)|set(recent)
             ended=parse(receipt['ended_at']) if receipt.get('ended_at') else None
             if ended and not started<=ended<=at:continue
             worker=read_json(path.parent/'worker.json',{})
-            complete=(receipt.get('outcome') in SUCCESSFUL_RUN_OUTCOMES
-                and set(rows)==set(sources) and set(qualified)==set(sources) and ended is not None
+            complete=(receipt.get('outcome') in (*SUCCESSFUL_RUN_OUTCOMES,'partial_or_failed')
+                and set(rows)==set(sources) and covered==set(sources) and ended is not None
                 and all(not rows[s].get('pending_qualification_count') and not rows[s].get('missing') for s in sources)
                 and receipt.get('normal_service_resumed') is True
-                and worker.get('protected_domains_unchanged') is True)
+                and worker.get('protected_domains_unchanged') is True
+                and (receipt.get('outcome') in SUCCESSFUL_RUN_OUTCOMES or
+                    bool(recent) and worker.get('completed') is True and not cycle_failure(receipt)))
             state=('complete' if complete else 'running' if receipt.get('outcome') in ('running','reserved') else
                 'partial' if receipt.get('outcome') in (*SUCCESSFUL_RUN_OUTCOMES,'partial_or_failed') else 'failed')
             enabled={s for s,row in source_settings(config).items() if row['enabled']}
             current={s:read_source_state(config,s) or {} for s in enabled} if complete else {}
-            still_verified=complete and all(row.get('qualifying_observation') is True
-                and not row.get('pending_qualification_count') and not row.get('missing')
-                and row.get('ended_at') and parse(row['ended_at'])>=ended for row in current.values())
+            still_verified=complete and all(
+                (row.get('qualifying_observation') is True and not row.get('pending_qualification_count')
+                    and not row.get('missing') and row.get('ended_at')
+                    and (parse(row['ended_at'])>=ended or row.get('run_id')==receipt['run_id']
+                        and started<=parse(row['ended_at'])<=ended))
+                or (s in recent and row==rows[s] and parse(recent[s]['verified_at'])>=slot_at(at))
+                for s,row in current.items())
             candidates.append(dict(run_id=receipt['run_id'],started_at=stamp(started),ended_at=stamp(ended) if ended else None,
                 state=state,selected_sources=sources,qualified_sources=qualified,
-                remaining_sources=sorted(set(sources)-set(qualified)),
+                recently_verified_sources=sorted(recent),recent_verifications=recent,
+                remaining_sources=sorted(set(sources)-covered),
                 incomplete_sources=sorted(s for s in sources if rows.get(s,{}).get('pending_qualification_count')
                     or rows.get(s,{}).get('missing')),
-                resolves_daily_failure=still_verified and enabled<=set(qualified)))
+                resolves_daily_failure=still_verified and enabled<=covered))
         except (OSError,ValueError,KeyError,TypeError,AttributeError):continue
     return max(candidates,key=lambda r:(r['started_at'],r['run_id']),default=None)
 
@@ -850,7 +932,7 @@ def health_issues(config,at,*,application_ready=None):
                 issues[provider+':unverified']=dict(severity='error',reason='no_daily_qualifying_observation_record',
                     corrective_action='Check the expected run and source evidence; do not infer a complete empty inventory.')
             missing.append(provider)
-        elif source_condition(source) is not None:
+        elif source_condition(source) is not None and not verified_cooldown(config,source,at):
             if not source.get('qualifying_observation') and policy['readiness']=='ready' and not source.get('cohorts'):missing.append(provider)
             kind=source_condition(source)
             if kind=='coverage':
@@ -889,7 +971,7 @@ def health_issues(config,at,*,application_ready=None):
     return issues
 
 
-def _current_cycle(config,at):
+def _current_cycle(config,at,*,verify_cooldowns=True):
     first=parse(config['first_run_at'])
     if at<first:return dict(state='scheduled',scheduled_at=stamp(first))
     slot=slot_at(at);path=Path(config['state_directory'])/'runs'/slot.strftime('%Y%m%dT060000Z')/'run.json'
@@ -908,7 +990,9 @@ def _current_cycle(config,at):
         return dict(state='failed',scheduled_at=receipt.get('scheduled_at',stamp(slot)),
             run_id=receipt.get('run_id'),outcome=outcome,qualified_sources=[],failed_sources=[],failure=cycle_failure(receipt))
     qualified=sorted(source for source,row in sources.items() if row.get('qualifying_observation') is True)
-    groups={kind:sorted(source for source,row in sources.items() if source_condition(row)==kind)
+    recent=({s:proof for s,row in sources.items() if (proof:=verified_cooldown(config,row,at))}
+        if verify_cooldowns else {})
+    groups={kind:sorted(source for source,row in sources.items() if source_condition(row)==kind and source not in recent)
             for kind in ('collection','accounting','qualification','publication','coverage','undercoverage')}
     failed=groups['collection']
     if outcome in SUCCESSFUL_RUN_OUTCOMES:
@@ -917,7 +1001,8 @@ def _current_cycle(config,at):
     elif outcome in ('running','reserved'):state='running'
     else:state='failed'
     return dict(state=state,scheduled_at=receipt.get('scheduled_at',stamp(slot)),run_id=receipt.get('run_id'),
-        outcome=outcome,qualified_sources=qualified,failed_sources=failed,failure=cycle_failure(receipt),
+        outcome=outcome,qualified_sources=qualified,recently_verified_sources=sorted(recent),
+        recent_verifications=recent,failed_sources=failed,failure=cycle_failure(receipt),
         reporting_reconciliation=receipt.get('reporting_reconciliation'),
         accounting_unavailable_sources=groups['accounting'],qualification_failed_sources=groups['qualification'],
         publication_failed_sources=groups['publication'],not_attempted_sources=groups['coverage'],
@@ -933,14 +1018,16 @@ def _current_cycle(config,at):
 
 def _health_context(config,issues,at):
     directory=Path(config['state_directory'])
-    qualified=[]
+    qualified=[];recent={}
     for source in SOURCES:
         try:row=read_source_state(config,source)
         except (OSError,ValueError):row=None
         if row and row.get('qualifying_observation') is True and source_settings(config)[source]['enabled']:
             qualified.append(source)
+        elif (proof:=verified_cooldown(config,row,at)):recent[source]=proof
     affected=sorted({key.split(':',1)[0] for key in issues if key.split(':',1)[0] in SOURCES})
     return dict(checked_at=stamp(at),cycle=_current_cycle(config,at),operator_repair=latest_operator_repair(config,at),qualified_sources=qualified,
+        recently_verified_sources=sorted(recent),recent_verifications=recent,
         active_incidents=len(issues),affected_sources=affected,
         blocked_sources=sorted(source for source in SOURCES if POLICY[source]['readiness']=='blocked'),
         disabled_sources=sorted(source for source in SOURCES if not source_settings(config)[source]['enabled']
@@ -986,6 +1073,12 @@ def record_availability_failure(config,*,reason,unit,occurred_at=None):
 
 
 def health(config,at=None,*,application_ready=None,operating=None,urgent=False):
+    token=_cooldown_checks.set({})
+    try:return _health(config,at,application_ready=application_ready,operating=operating,urgent=urgent)
+    finally:_cooldown_checks.reset(token)
+
+
+def _health(config,at=None,*,application_ready=None,operating=None,urgent=False):
     """Durable deduplicated outbox. No employer or delivery calls here."""
     at=at or now();directory=Path(config['state_directory'])
     previous=read_json(directory/'health.json',{'active':{},'events':[]})
@@ -1076,7 +1169,7 @@ def health(config,at=None,*,application_ready=None,operating=None,urgent=False):
         context=dict(previous.get('context',{}))
         context['source_state_checked_at']=context.get('source_state_checked_at') or context.get('checked_at')
         context.update(checked_at=stamp(at),active_incidents=len(issues))
-        try:context['cycle']=_current_cycle(config,at)
+        try:context['cycle']=_current_cycle(config,at,verify_cooldowns=False)
         except (OSError,ValueError):context['cycle']={'state':'unavailable'}
     else:
         context=_health_context(config,issues,at)
@@ -1099,6 +1192,7 @@ def health(config,at=None,*,application_ready=None,operating=None,urgent=False):
             run_id=context['cycle']['run_id'],reason='retained_cycle_accounting_reconciled'))
     before=previous.get('context',{}).get('qualified_sources')
     if before is not None:
+        before=set(before)|set(previous.get('context',{}).get('recently_verified_sources',[]))
         for source in sorted(set(context['qualified_sources'])-set(before)):
             source_state=read_source_state(config,source) or {}
             previous_check=previous.get('context',{}).get('source_state_checked_at') or previous.get('checked_at')
