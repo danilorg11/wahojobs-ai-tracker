@@ -128,22 +128,26 @@ def source_fingerprint(connection, slug):
         return digest(dict(missing=slug))
     cid = company['id']
     material = dict(company=dict(company))
+    def rows(query):
+        # Defer each query until its table is encoded. Retain only the current
+        # row, rather than every body and metadata document in capture history.
+        for row in connection.execute(query, (cid,)):
+            yield dict(row)
     for table, column in (('jobs', 'company_id'), ('crawl_runs', 'company_id'),
                           ('canonical_opportunities', 'company_id')):
-        material[table] = [dict(r) for r in connection.execute(
-            'SELECT * FROM ' + table + ' WHERE ' + column + '=? ORDER BY id', (cid,))]
+        material[table] = rows('SELECT * FROM ' + table + ' WHERE ' + column + '=? ORDER BY id')
     for table in ('job_source_contents', 'job_source_content_acceptances', 'job_source_content_captures'):
-        material[table] = [dict(r) for r in connection.execute(
+        material[table] = rows(
             'SELECT s.* FROM ' + table + ' s JOIN jobs j ON j.id=s.job_id '
-            'WHERE j.company_id=? ORDER BY s.rowid', (cid,))]
+            'WHERE j.company_id=? ORDER BY s.rowid')
     for table in ('opportunity_enrichments', 'opportunity_enrichment_overrides'):
-        material[table] = [dict(r) for r in connection.execute(
+        material[table] = rows(
             'SELECT e.* FROM ' + table + ' e JOIN canonical_opportunities co '
-            'ON co.id=e.canonical_opportunity_id WHERE co.company_id=? ORDER BY e.rowid', (cid,))]
-    return _source_fingerprint_digest(material)
+            'ON co.id=e.canonical_opportunity_id WHERE co.company_id=? ORDER BY e.rowid')
+    return _source_fingerprint_digest(material, row_streams=set(material)-{'company'})
 
 
-def _source_fingerprint_digest(material):
+def _source_fingerprint_digest(material, *, row_streams=()):
     # A source footprint consists of company metadata and ordered table rows.
     # Encode one row at a time with the C JSON encoder: Python iterencode walks
     # every field in the growing history and consumes the publication window.
@@ -165,7 +169,7 @@ def _source_fingerprint_digest(material):
             if index: fingerprint.update(b',')
             value(key)
             fingerprint.update(b':')
-            if isinstance(material[key], list): rows(material[key])
+            if key in row_streams or isinstance(material[key], list): rows(material[key])
             else: value(material[key])
         fingerprint.update(b'}')
     elif isinstance(material, list):

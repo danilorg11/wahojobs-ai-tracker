@@ -59,6 +59,23 @@ class SourceFingerprintStreamingTests(unittest.TestCase):
         for material in ({'a': 1, 1: 'b'}, {('tuple',): 'invalid'}):
             with self.assertRaises(TypeError): maintenance._source_fingerprint_digest(material)
 
+    def test_cursor_rows_are_encoded_before_the_next_row_is_loaded(self):
+        expected = maintenance.digest(dict(company={'name': 'Empresa'},
+            history=[{'row': index, 'body': 'Ω' * 1000} for index in range(30)]))
+        consumed = []
+        def stream():
+            for index in range(30):
+                self.assertEqual(consumed, list(range(index)))
+                yield {'row': index, 'body': 'Ω' * 1000}
+        original = json.JSONEncoder.encode
+        def encode(encoder, item):
+            if isinstance(item, dict) and 'row' in item: consumed.append(item['row'])
+            return original(encoder, item)
+        with patch.object(json.JSONEncoder, 'encode', encode):
+            self.assertEqual(maintenance._source_fingerprint_digest(
+                dict(company={'name': 'Empresa'}, history=stream()), row_streams={'history'}), expected)
+        self.assertEqual(consumed, list(range(30)))
+
 
 class TimestampCancellationTests(unittest.TestCase):
     def test_worker_deadline_and_interrupt_are_not_reported_as_bad_timestamps(self):
