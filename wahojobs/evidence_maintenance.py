@@ -144,13 +144,35 @@ def source_fingerprint(connection, slug):
 
 
 def _source_fingerprint_digest(material):
-    # Preserve the existing canonical fingerprint byte stream, including every
-    # historical row. Avoid the additional complete JSON string and UTF-8 copy
-    # of a large source's material; this is not a different hash or a cache.
+    # A source footprint consists of company metadata and ordered table rows.
+    # Encode one row at a time with the C JSON encoder: Python iterencode walks
+    # every field in the growing history and consumes the publication window.
+    # Keep the exact canonical byte stream without a source-wide JSON/UTF-8 copy,
+    # omitting rows or trusting a previously stored hash in place of their bytes.
     fingerprint = sha256()
     encoder = json.JSONEncoder(sort_keys=True, ensure_ascii=False, separators=(',', ':'), allow_nan=False)
-    for piece in encoder.iterencode(material):
-        fingerprint.update(piece.encode('utf-8'))
+    def value(item):
+        fingerprint.update(encoder.encode(item).encode('utf-8'))
+    def rows(items):
+        fingerprint.update(b'[')
+        for index, item in enumerate(items):
+            if index: fingerprint.update(b',')
+            value(item)
+        fingerprint.update(b']')
+    if isinstance(material, dict) and all(isinstance(key, str) for key in material):
+        fingerprint.update(b'{')
+        for index, key in enumerate(sorted(material)):
+            if index: fingerprint.update(b',')
+            value(key)
+            fingerprint.update(b':')
+            if isinstance(material[key], list): rows(material[key])
+            else: value(material[key])
+        fingerprint.update(b'}')
+    elif isinstance(material, list):
+        rows(material)
+    else:
+        # Preserve normal JSON key conversion/error behavior for other inputs.
+        value(material)
     return fingerprint.hexdigest()
 
 

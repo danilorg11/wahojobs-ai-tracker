@@ -1618,6 +1618,10 @@ def parse_source_timestamp(value: str | None) -> tuple[str, datetime | None]:
                 parsed = parsed.replace(tzinfo=timezone.utc)
             else:
                 parsed = parsed.astimezone(timezone.utc)
+    except (TimeoutError, InterruptedError):
+        # Worker cancellation is an OSError subclass, not malformed source data.
+        # Let the transaction roll back and retain the actual deadline failure.
+        raise
     except (OverflowError, OSError, ValueError):
         return SOURCE_TIMESTAMP_INVALID, None
     return SOURCE_TIMESTAMP_VALID, parsed

@@ -39,6 +39,41 @@ class SourceFingerprintStreamingTests(unittest.TestCase):
         with patch.object(maintenance, 'encoded', side_effect=AssertionError('whole JSON allocation')):
             self.assertEqual(maintenance._source_fingerprint_digest(material), expected)
 
+    def test_row_encoding_never_serializes_the_full_history_and_covers_every_row(self):
+        history = [{'id': index, 'body': 'corpo Ω ' * 2000} for index in range(100)]
+        material = dict(company={'name': 'Empresa'}, history=history, empty=[])
+        expected = maintenance.digest(material)
+        original = json.JSONEncoder.encode
+        def bounded(encoder, item):
+            self.assertIsNot(item, material)
+            self.assertIsNot(item, history)
+            return original(encoder, item)
+        with patch.object(json.JSONEncoder, 'encode', bounded):
+            self.assertEqual(maintenance._source_fingerprint_digest(material), expected)
+        history[-1]['body'] += ' last retained row changed'
+        self.assertNotEqual(maintenance._source_fingerprint_digest(material), expected)
+
+    def test_non_string_keys_retain_canonical_conversion_and_invalid_key_errors(self):
+        for material in ({1: 'a', 2: 'b'}, {None: ['a']}, {True: False}):
+            self.assertEqual(maintenance._source_fingerprint_digest(material), maintenance.digest(material))
+        for material in ({'a': 1, 1: 'b'}, {('tuple',): 'invalid'}):
+            with self.assertRaises(TypeError): maintenance._source_fingerprint_digest(material)
+
+
+class TimestampCancellationTests(unittest.TestCase):
+    def test_worker_deadline_and_interrupt_are_not_reported_as_bad_timestamps(self):
+        from wahojobs import source_capture
+        for error in (TimeoutError('worker_execution_deadline_expired'), InterruptedError('operator stop')):
+            with self.subTest(error=type(error).__name__), patch.object(source_capture, '_NUMERIC_TIMESTAMP') as pattern:
+                pattern.fullmatch.side_effect = error
+                with self.assertRaises(type(error)):
+                    source_capture.parse_source_timestamp('2026-09-28T14:08:00+00:00')
+
+    def test_ordinary_invalid_dates_still_fail_qualification(self):
+        from wahojobs import source_capture
+        for value in ('2026-99-99', 'not a timestamp', '9' * 1000):
+            self.assertEqual(source_capture.parse_source_timestamp(value), ('invalid', None))
+
 
 class SourceFingerprintDatabaseParityTests(unittest.TestCase):
     setUp = existing.MaintenanceTests.setUp
