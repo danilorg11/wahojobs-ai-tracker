@@ -202,6 +202,14 @@ class PublicCatalogReaderTests(unittest.TestCase):
         variant['rich_body'] = variant['rich_body'].replace('Italian', 'Romansh')
         self.assertEqual(publication_quality(variant)[0], 'indexable')
 
+    def test_turing_jira_title_with_support_specialist_document_is_withheld(self):
+        variant = dict(self.jobs[0]['_catalog_variants'][0],
+            company_slug='turing', rich_provider='turing', source_title='Atlassian Jira Admin',
+            rich_body='IT Support Specialist\n\n'+BODY)
+        self.assertEqual(publication_quality(variant)[:2], ('withheld', 'known_title_body_conflict'))
+        variant['rich_body'] = 'Atlassian Jira Admin\n\n'+BODY
+        self.assertEqual(publication_quality(variant)[0], 'indexable')
+
     def test_source_identity_and_known_conflict_are_withheld(self):
         variant = self.jobs[0]['_catalog_variants'][0]
         for changes in ({'rich_external_id':'other'}, {'rich_source_url':'https://other.test'},
