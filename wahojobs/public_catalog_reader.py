@@ -17,6 +17,8 @@ from xml.sax.saxutils import escape as xml_escape
 
 from wahojobs import public_job_page as detail, public_jobs_catalog as catalog
 from wahojobs.authenticated_card_evidence import _source_text
+from wahojobs.catalog_source_presentation import (PRESENTATION_VERSION, dataforce_description,
+                                                 contribution_context, surge_role_fields, bound_metadata)
 
 PUBLIC_ORIGIN = 'https://www.wahojobs.com'
 ORIGIN_PREFIX = '/_catalog'
@@ -61,7 +63,8 @@ def publication_quality(job):
                   url=url, body=body, body_format=job.get('rich_body_format'),
                   metadata_json=job.get('rich_metadata_json'))
     try:
-        text = _source_text(source)
+        scoped = dataforce_description(job)
+        text = scoped if scoped is not None else _source_text(source)
     except (ValueError, TypeError, KeyError):
         return 'withheld', 'invalid_source_document', ''
     if (len(text.encode('utf-8')) > 65_536 or '\x00' in text
@@ -134,7 +137,30 @@ def prepare_publication(jobs):
                        _public_kind=opportunity_label(job, text))
             job.pop('catalog_detail_target', None)
             # Canonical summaries are not the description of a selected variant.
-            job['catalog_summary'] = ''
+            from wahojobs.catalog_display import advertised_compensation
+            # HTML parsing and compensation normalization happen before readiness,
+            # never on ordinary navigation or response-cache expiry.
+            job.pop('_public_compensation', None)
+            job['_public_compensation'] = advertised_compensation(job)
+            if job['_public_compensation'] is None:
+                from wahojobs.catalog_display import pay_source_text
+                from wahojobs.candidate_source_display import pay_facts
+                pay_metadata = bound_metadata(job)
+                if pay_metadata.get('pay'):
+                    source_pay = pay_facts({'pay': pay_source_text(pay_metadata['pay'])}, pay_source_text(text))
+                    if source_pay['notes'] and source_pay['label'] not in ('Per accepted task', 'Output-based pay'):
+                        decisions[-1].update(state='withheld', reason='conflicting_source_compensation')
+                        continue
+            activity, quote = contribution_context(job, text, job['_public_compensation'], surge_role_fields(job))
+            kind = job['_public_kind']
+            if re.search(r'\bone[- ]time\b', job['_public_compensation'] or '', re.I):
+                kind = 'One-time participation'
+                job['_public_engagement'] = kind
+            elif kind in ('Public application opportunity', 'Advertised opportunity'):
+                kind = ''
+            job['_public_activity'] = activity
+            job['_public_kind'] = ' · '.join(filter(None, (activity, kind))) or opportunity_label(job, text)
+            job['catalog_summary'] = quote
             variants.append(job)
         if variants:
             representative = dict(max(variants, key=catalog.representative_variant_rank))
@@ -172,8 +198,8 @@ class PublicCatalogReader:
         identities = [(j['company_slug'], j['job_id'], j.get('source_hash'),
                        j.get('material_content_sha256'), j.get('latest_successful_source_run_at'))
                       for g in jobs for j in g.get('_catalog_variants', (g,))]
-        self.generation = dict(self.generation, publication_sha256=sha256(
-            json.dumps(identities, separators=(',', ':')).encode()).hexdigest())
+        self.generation = dict(self.generation, presentation_version=PRESENTATION_VERSION, publication_sha256=sha256(
+            json.dumps([PRESENTATION_VERSION, identities], separators=(',', ':')).encode()).hexdigest())
         self._lock = threading.RLock()
         self._cache = OrderedDict()
         self._cache_bytes = 0
@@ -288,7 +314,7 @@ class PublicCatalogReader:
             return result
 
     def _page(self, parsed):
-        navigation = "<nav aria-label='Main'><a href='https://www.wahojobs.com/'>Home</a> · <a href='/jobs'>Browse jobs</a> · <a href='https://www.wahojobs.com/blog'>Blog</a></nav>"
+        navigation = "<nav aria-label='Main'><a href='https://www.wahojobs.com/'>Home</a> · <a href='/jobs'>AI Training Jobs</a> · <a href='https://www.wahojobs.com/blog'>Blog</a></nav>"
         if parsed.path == '/jobs':
             params = catalog.parse_catalog_query(parsed.query)
             if params is None:
@@ -296,7 +322,7 @@ class PublicCatalogReader:
             page = catalog.build_catalog(self._jobs, params)
             if page['requested_page'] != page['page']:
                 return self._message(404, 'Page not found', 'This results page does not exist.')
-            html = catalog.render_public_jobs_page(page, public_origin=self.public_origin, navigation=navigation)
+            html = catalog.render_public_jobs_page(page, public_origin=self.public_origin, navigation=navigation, public_reader=True)
             return self._response(200, html, indexable=not page['filters'])
         if parsed.path == '/jobs/sitemap.xml':
             if parsed.query:

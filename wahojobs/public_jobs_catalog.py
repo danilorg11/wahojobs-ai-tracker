@@ -596,6 +596,7 @@ def render_public_jobs_page(
     navigation="",
     query_present=False,
     authenticated=False,
+    public_reader=False,
 ):
     from wahojobs.candidate_presentation import candidate_style
     filters = catalog["filters"]
@@ -657,14 +658,17 @@ def render_public_jobs_page(
     pagination = render_pagination(catalog)
     page_suffix = f" — Page {catalog['page']}" if catalog["page"] > 1 else ""
     description_suffix = f" Page {catalog['page']}." if catalog["page"] > 1 else ""
+    heading = 'AI Training Jobs' if public_reader else 'Browse jobs'
+    introduction = ('Explore opportunities in AI training, evaluation and data collection.' if public_reader
+                    else 'Explore all available opportunities. Use filters to narrow your search.')
 
     return f"""<!doctype html>
 <html lang='en'>
 <head>
   <meta charset='utf-8'>
   <meta name='viewport' content='width=device-width, initial-scale=1'>
-  <title>Browse jobs{public_job_page.e(page_suffix)} | Wahojobs</title>
-  <meta name='description' content='Browse and search current Wahojobs opportunities.{public_job_page.e(description_suffix)}'>
+  <title>{heading}{public_job_page.e(page_suffix)} | Wahojobs</title>
+  <meta name='description' content='{public_job_page.e(introduction + description_suffix)}'>
   {robots}
   {canonical}
   <style>{public_job_page.PUBLIC_JOB_CSS}{PUBLIC_JOBS_CSS}{candidate_style()}</style>
@@ -676,8 +680,8 @@ def render_public_jobs_page(
   </header>
   <main class='catalog-main'>
     <header class='catalog-hero'>
-      <h1>Browse jobs</h1>
-      <p>Explore all available opportunities. Use filters to narrow your search.</p>
+      <h1>{heading}</h1>
+      <p>{introduction}</p>
     </header>
     <form class='catalog-filters' method='get' action='/jobs' role='search'>
       <label class='keyword-field' for='jobs-q'>
@@ -775,6 +779,7 @@ def render_job_card(job, *, return_to, include_variant=False):
       <div class='job-card-copy'>
         {f"<p class='job-company'>{public_job_page.e(company)}</p>" if company else ""}
         <h2>{title_markup}</h2>
+        {f"<p class='candidate-kind'>{public_job_page.e(job['_public_kind'])}</p>" if job.get('_public_kind') else ''}
         {pay_html}
         {location_html}
         {chips}
@@ -826,7 +831,8 @@ def catalog_card_attributes(job):
         professional_field_label(value)
         for value in role.get("professional_domains") or []
     )
-    values.append(next(iter(activities), None))
+    if not job.get('_public_activity'):
+        values.append(next(iter(activities), None))
     values.append(next(iter(fields), None))
     languages = [
         candidate_text(item.get("language"))

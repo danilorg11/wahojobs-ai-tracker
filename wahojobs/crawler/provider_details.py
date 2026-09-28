@@ -340,7 +340,7 @@ def _recover_mercor_pay(candidate, response, scripts):
     The page also publishes SEO geography and availability. Neither is adopted
     by this content-only operation. Existing listing fields remain untouched.
     """
-    from wahojobs.candidate_source_display import _RATE, pay_facts
+    from wahojobs.candidate_source_display import _RATE, literal_rate_parts
     from wahojobs.source_capture import normalize_source_body
     validate_detail_url('mercor', candidate.external_id, candidate.url)
     packets = [json.loads(text) for attrs, text in scripts if attrs.get('id') == '__NEXT_DATA__']
@@ -370,17 +370,17 @@ def _recover_mercor_pay(candidate, response, scripts):
     wording = ' '.join(header.values.get(k, '').strip() for k in ('listing-rate-range', 'listing-rate-range-text')).strip()
     if not _RATE.fullmatch(wording):
         raise ValueError('No unambiguous advertised compensation header')
-    from wahojobs.opportunity_enrichment import parse_explicit_compensation
-    parsed = parse_explicit_compensation(wording)
+    parsed = literal_rate_parts(wording)
     lo, hi = role.get('rateMin'), role.get('rateMax')
     if (not parsed or type(lo) not in (int, float) or type(hi) not in (int, float)
             or lo < 0 or hi < lo or parsed['amount_min'] != lo or parsed['amount_max'] != hi
-            or {'hourly': 'hour', 'annually': 'year', 'monthly': 'month'}.get(role.get('payRateFrequency')) != parsed['period']):
+            or {'hourly': 'hour', 'annually': 'year', 'monthly': 'month',
+                'one-time': 'one-time', 'task': 'task', 'project': 'project'}.get(role.get('payRateFrequency')) != parsed['period']):
         raise ValueError('Advertised and structured salary fields disagree')
     record = {key: role.get(key) for key in ('listingId', 'title', 'description', 'status', 'isPrivate', 'deletedAt', 'rateMin', 'rateMax', 'payRateFrequency')}
     salary = props.get('structuredData', {}).get('jobPosting', {})
-    amount = salary.get('baseSalary', {})
-    values = amount.get('value', {})
+    amount = salary.get('baseSalary') or {}
+    values = amount.get('value') or {}
     from wahojobs.profiles.preference_model import ISO_4217_CURRENCIES
     currency = amount.get('currency')
     if (salary.get('identifier', {}).get('value') == candidate.external_id

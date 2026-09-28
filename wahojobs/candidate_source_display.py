@@ -86,11 +86,33 @@ _CURRENCY_CODES = '|'.join(sorted(ISO_4217_CURRENCIES))
 _CURRENCY = re.compile(r'\b(?:' + _CURRENCY_CODES + r')\b', re.I)
 
 _RATE = re.compile(
-    r'(?<![\w.])(?:(?:up to|from|starting at|at least)\s+)?'
+    r'(?<![\w.])(?:(?:up to|from|starting at|at least|approximately|about)\s*|~\s*)?'
     rf'(?:(?:{_CURRENCY_CODES})\s*[$€£]?|[\$€£])?\d+(?:[,.]\d+)*\+?'
     rf'(?:\s*(?:[-–—]\s*to\s*[-–—]|to\b|[-–—])\s*(?:(?:{_CURRENCY_CODES})\s*[$€£]?|[\$€£])?\d+(?:[,.]\d+)*\+?)?'
-    rf'\s*(?:(?:{_CURRENCY_CODES})\s*)?(?:/\s*|per\s+)'
-    rf'(?:accepted\s+)?(?:hour|hr|month|year|project|task)s?\b(?:\s+(?:{_CURRENCY_CODES})\b)?', re.I)
+    rf'\s*(?:(?:{_CURRENCY_CODES})\s*)?(?:(?:/\s*|per\s+)'
+    rf'(?:accepted\s+)?(?:hour|hr|month|year|project|task)s?|(?:/\s*)?one[- ]time)\b'
+    rf'(?:\s+(?:{_CURRENCY_CODES})\b)?', re.I)
+
+
+def literal_rate_parts(wording):
+    """Compare an explicit display quotation; no inferred currency or earnings."""
+    rate = _RATE.fullmatch(wording.strip())
+    if not rate:
+        return None
+    amounts = re.findall(r'\d+(?:[,.]\d+)*', rate.group())
+    def number(value):
+        if re.fullmatch(r'\d{1,3}(?:,\d{3})+(?:\.\d+)?', value):
+            value = value.replace(',', '')
+        return float(value.replace(',', '.'))
+    if len(amounts) not in (1, 2):
+        return None
+    try:
+        numbers = [number(value) for value in amounts]
+    except ValueError:
+        return None
+    unit = re.search(r'(?:/\s*|per\s+)(?:accepted\s+)?(hour|hr|month|year|project|task)s?\b', rate.group(), re.I)
+    period = ('hour' if unit[1].lower() == 'hr' else unit[1].lower()) if unit else 'one-time'
+    return dict(amount_min=numbers[0], amount_max=numbers[-1], period=period)
 
 
 def pay_facts(metadata, text):
@@ -107,7 +129,7 @@ def pay_facts(metadata, text):
     phrases = []
     # The accepted listing pay field retains the literal currency symbol/unit.
     for value in (metadata.get('pay'), text, record.get('shortDescription')):
-        if isinstance(value, str):
+        if isinstance(value, str) and re.search(r'\d', value) and re.search(r'\b(?:hours?|hrs?|months?|years?|projects?|tasks?|one[- ]time)\b', value, re.I):
             phrases.extend(m.group().strip() for m in _RATE.finditer(plain(value)))
     phrases = list(dict.fromkeys(phrases))
     # A captured detail may contain a typed hourly range without a pay teaser.

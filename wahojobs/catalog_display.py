@@ -30,7 +30,8 @@ def pay_source_text(text):
     lines, excluded_section = [], False
     for line in text.splitlines():
         label = plain(line).strip('#: ').casefold()
-        heading = bool(re.match(r'^\s*#{1,6}\s|^\s*\*\*[^*]+\*\*:?\s*$', line)) or label in {
+        heading = (bool(re.match(r'^\s*#{1,6}\s|^\s*\*\*[^*]+\*\*:?\s*$', line))
+                   or (line.rstrip().endswith(':') and len(line) < 110)) or label in {
             'referrals', 'referral rewards', 'referral bonus', 'bonuses', 'rewards',
             'compensation', 'pay', 'salary', 'responsibilities', 'requirements', 'benefits'}
         if heading:
@@ -40,8 +41,8 @@ def pay_source_text(text):
     return '\n'.join(lines)
 
 
-def _salary_agrees(comp, wording):
-    from wahojobs.candidate_source_display import _CURRENCY, _RATE
+def _salary_agrees(comp, wording, evidence=()):
+    from wahojobs.candidate_source_display import _CURRENCY, _RATE, literal_rate_parts
     if comp.get('disclosed') is not True:
         return True
     if wording in ('Per accepted task', 'Output-based pay'):
@@ -51,21 +52,23 @@ def _salary_agrees(comp, wording):
         return False
     # Compare the formatter's already-recognized quotation, including task pay,
     # trailing currency and thousands separators. This does not derive fields.
-    amounts = re.findall(r'\d+(?:[,.]\d+)*', rate.group())
-    def number(value):
-        if re.fullmatch(r'\d{1,3}(?:,\d{3})+(?:\.\d+)?', value):
-            value = value.replace(',', '')
-        return float(value.replace(',', '.'))
-    try:
-        numbers = [number(value) for value in amounts]
-    except ValueError:
+    parsed = literal_rate_parts(rate.group())
+    if parsed is None:
         return False
-    if len(numbers) not in (1, 2):
-        return False
-    unit = re.search(r'(?:/\s*|per\s+)(?:accepted\s+)?(hour|hr|month|year|project|task)s?\b', rate.group(), re.I)[1].lower()
-    parsed = dict(amount_min=numbers[0], amount_max=numbers[-1], period='hour' if unit == 'hr' else unit)
     if any(comp.get(key) is not None and comp[key] != parsed[key] for key in ('amount_min', 'amount_max')):
-        return False
+        # Older automatic extraction flattened an "up to" teaser to an exact
+        # amount. The exact variant's pay range + matching upper-limit quotation
+        # demonstrate that loss; neither a sibling nor a manual override can.
+        collapsed_limit = (comp.get('amount_type') == 'exact'
+            and comp.get('amount_min') == comp.get('amount_max') == parsed['amount_max']
+            and parsed['amount_min'] < parsed['amount_max']
+            and any(phrase.lower().startswith('up to')
+                and phrase.casefold() in plain(comp.get('notes') or '').casefold()
+                and (parts := literal_rate_parts(phrase))
+                and parts['amount_min'] == parts['amount_max'] == parsed['amount_max']
+                and parts['period'] == parsed['period'] for phrase in evidence))
+        if not collapsed_limit:
+            return False
     if comp.get('period') not in (None, 'unknown', parsed['period']):
         return False
     currencies = {c.upper() for c in _CURRENCY.findall(wording)}
@@ -80,6 +83,8 @@ def advertised_compensation(job):
     source wording preserves currency symbols and limits the numeric normalizer
     cannot always represent. Nothing is copied between sibling variants.
     """
+    if '_public_compensation' in job:
+        return job['_public_compensation']
     from wahojobs.public_job_page import compensation_label
     from wahojobs.crawler.provider_details import DETAIL_KEY
     from wahojobs.opportunity_enrichment import source_body_paragraphs
@@ -97,6 +102,8 @@ def advertised_compensation(job):
     if any(f.get('knowledge_state') == 'known_empty' for f in facts):
         return compensation_label(compact)
     for path in {f['field_path'] for f in facts}:
+        if path.endswith('.notes'):
+            continue  # Different quotations are checked as source rates below.
         values = {json.dumps(f.get('value'), sort_keys=True) for f in facts if f['field_path'] == path}
         if len(values) > 1:
             return None
@@ -110,6 +117,10 @@ def advertised_compensation(job):
         except (TypeError, ValueError):
             metadata = {}
         metadata = dict(metadata) if isinstance(metadata, dict) else {}
+        from wahojobs.catalog_source_presentation import surge_role_fields
+        fields = surge_role_fields(job, metadata)
+        if fields.get('pay-rate'):
+            metadata['pay'] = fields['pay-rate']
         detail = metadata.get(DETAIL_KEY)
         if not isinstance(detail, dict) or any(detail.get(k) != job.get(s) for k, s in (
                 ('provider', 'company_slug'), ('external_id', 'external_id'), ('url', 'listing_url'))):
@@ -124,18 +135,25 @@ def advertised_compensation(job):
             metadata[DETAIL_KEY]['record'] = dict(record, shortDescription=pay_source_text(record.get('shortDescription') or ''))
         metadata['pay'] = pay_source_text(metadata.get('pay') or '')
         body = job.get('rich_body') or ''
-        if job.get('rich_body_format') == 'text/html':
+        is_html = job.get('rich_body_format') == 'text/html' or bool(re.match(r'\s*<(?:p|div|h[1-6]|ul|section)\b', body, re.I))
+        if is_html:
             # Preserve heading boundaries before the existing HTML-to-text pass.
             body = re.sub(r'<h[1-6]\b[^>]*>', '<p>## ', body, flags=re.I)
             body = re.sub(r'</h[1-6]\s*>', '</p>', body, flags=re.I)
-        text = '\n\n'.join(source_body_paragraphs(body, job.get('rich_body_format')))
+        text = ('\n\n'.join(source_body_paragraphs(body, 'text/html'))
+                if is_html else body)
         pay = pay_facts(metadata, pay_source_text(text))
         if pay['label']:
             if pay['notes'] and pay['label'] not in ('Per accepted task', 'Output-based pay'):
                 return None  # Conflicting source rates must not become one settled rate.
             # A literal symbol remains literal; no repeated currency warning.
-            return pay['label'].replace(' (currency not specified)', '') if _salary_agrees(comp, pay['label']) else None
+            return pay['label'].replace(' (currency not specified)', '') if _salary_agrees(comp, pay['label'], pay['wording']) else None
         # Do not resurrect a normalized amount extracted from unrelated rewards.
         if _NON_PAY.search(text) and pay_facts({}, text)['label']:
             return None
+        if job.get('company_slug') == 'dataforce' and job.get('_public_source_text'):
+            from wahojobs.catalog_source_presentation import dataforce_pay_text
+            quoted = dataforce_pay_text(job['_public_source_text'])
+            if quoted:
+                return quoted
     return compensation_label(compact)

@@ -866,7 +866,7 @@ def render_public_job_page(
             ("Compensation", advertised_compensation(job)),
             (
                 "Engagement",
-                enum_label(arrangement["engagement_type"])
+                (job.get('_public_engagement') if public_reader else None) or enum_label(arrangement["engagement_type"])
                 or clean(job["source_commitment"]),
             ),
             (
@@ -1068,6 +1068,7 @@ def render_public_job_page(
           <p class='eyebrow'>{e(job.get('_public_kind', 'Job opportunity')) if public_reader else 'Job opportunity'}</p>
           <h1>{e(page_title)}</h1>
           <p class='company-line'>{company_link}</p>
+          {f"<p class='candidate-overview'>{e(job.get('catalog_summary'))}</p>" if public_reader and job.get('catalog_summary') else ''}
           {facts}
           {eligibility_details}
           {chips}

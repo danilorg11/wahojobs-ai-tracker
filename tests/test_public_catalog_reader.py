@@ -342,7 +342,7 @@ class PublicCatalogReaderTests(unittest.TestCase):
                     conn.close()
             status, headers, body = request()
             self.assertEqual(status, 200)
-            self.assertIn(b'Browse jobs', body)
+            self.assertIn(b'AI Training Jobs', body)
             self.assertEqual(headers['X-Wahojobs-Catalog-Robots'], 'noindex,follow')
             self.assertNotIn('Set-Cookie', headers)
             repeat_status, repeat_headers, repeat_body = request()
