@@ -31,7 +31,7 @@ LEFT JOIN job_source_content_captures record_observation
         AND sc.promotion_policy_version = 'job_source_promotion_v2'
         AND sc.promotion_decision IN ('promoted', 'confirmed') AND sc.provider_outcome = 'partial')
       OR (c.slug = 'dataforce' AND sc.source_type = 'dataforce-community-html'
-        AND sc.record_promotion_contract_id IN ('dataforce_index_detail_record_v1', 'dataforce_thyme_index_detail_family_v2')
+        AND sc.record_promotion_contract_id IN ('dataforce_index_detail_record_v1', 'dataforce_thyme_index_detail_family_v2', 'dataforce_remote_contributor_family_v3')
         AND sc.promotion_policy_version = 'job_source_promotion_v2'
         AND sc.promotion_decision IN ('promoted', 'confirmed') AND sc.provider_outcome = 'partial')
       OR (c.slug = 'surge' AND sc.source_type = 'public-worker-pages'

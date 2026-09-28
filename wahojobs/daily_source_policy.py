@@ -48,11 +48,11 @@ POLICY = {
         ['GET https://www.dataannotation.tech/'+p for p in
          ('coding','generalist','law','math','medicine','physics','finance','accounting','chemistry','biology')],
         'Ten exact evergreen role routes and individually attested canonical pages; no absence closure or active-project claim.'),
-    'dataforce': entry(15, 360, 11,
+    'dataforce': entry(70, 360, 35,
         ['GET https://dataforcecommunity.transperfect.com/projects',
          'GET https://dataforcecommunity.transperfect.com/projects?project_type=All&page=<1..19>',
          'GET up to remaining cap of exact index-linked https://dataforcecommunity.transperfect.com/(project|study)/<slug>'],
-        'Eight historical exact Thyme roles plus new remote Thyme AI-writing family records only when exact index/detail/application evidence attests each record; remaining slots rotate other remote index cards for inspection. Partial source, no absence closure.'),
+        'Exact current index/detail/application evidence for remote Thyme writing, Cadence evaluation, Ronia AI-photo, Gardenia/Triton speech and TTS casting families. At most 20 index pages and 50 detail pages; configured daily budget must cover all supported current records. Conflicting onsite/minor identities remain unqualified. Partial source, no absence closure.'),
     'handshake': entry(40, 120, 29,
         ['GET https://joinhandshake.com/ai/opportunities[/]',
          'GET page-linked https://framerusercontent.com/sites/<public module>.mjs',
@@ -104,7 +104,7 @@ MAX_EXECUTION_SECONDS = 2580  # shared native ceiling; expanded source caps must
 
 def default_sources():
     return {s: dict(enabled=s in READY_SOURCES and s not in NEW_SCOPES_REQUIRE_EXPLICIT_CONFIGURATION,
-        http_max=9 if s == 'outlier' else 1 if s == 'mercor' else POLICY[s]['http_max'],
+        http_max=9 if s == 'outlier' else 1 if s == 'mercor' else 15 if s == 'dataforce' else POLICY[s]['http_max'],
         seconds_max=60 if s == 'mercor' else POLICY[s]['seconds_max']) for s in CORE_SOURCES}
 
 

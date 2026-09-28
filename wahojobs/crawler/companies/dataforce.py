@@ -1,6 +1,5 @@
 from wahojobs.crawler.providers.dataforce import (fetch_dataforce_jobs, collect_index_linked_details,
-    supported_thyme_family, QUALIFIED_DETAIL_PATHS)
-from urllib.parse import urlparse
+    supported_daily_record)
 from wahojobs.crawler.types import CompanyCrawlResult, ProviderOutcome
 from wahojobs.daily_source_policy import current_source
 
@@ -10,8 +9,7 @@ def crawl_dataforce(projects_url):
     qualified, detail_count, inspection_failures, verification_failures = (
         collect_index_linked_details(observed)
         if current_source() == 'dataforce' else ([], 0, 0, 0))
-    in_scope = sum(urlparse(job.url).path in QUALIFIED_DETAIL_PATHS or supported_thyme_family(job)
-                   for job in observed)
+    in_scope = sum(supported_daily_record(job) for job in observed)
     # Index cards expose a preview URL, not a verified application action.
     # Keep them as source observations until a source-specific record contract
     # can attest application authority; passing them to tracking can reactivate

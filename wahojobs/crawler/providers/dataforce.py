@@ -13,6 +13,7 @@ from wahojobs.daily_source_policy import observed_dataforce_details, controlled_
 
 from wahojobs.classification import AVAILABILITY_BASIS_PUBLIC_PAGE, OPPORTUNITY_KIND_LIVE_POSTING
 from wahojobs.crawler.types import JobCandidate, RecordPromotionAttestation, BODY_OBSERVATION_PRESENT
+from wahojobs.crawler.providers.dataforce_families import supported_family, qualify_record as qualify_family_record
 
 
 REQUEST_HEADERS = {
@@ -113,18 +114,20 @@ def collect_index_linked_details(jobs):
     with observed_dataforce_details(urls):
         for job in ordered:
             known = urlparse(job.url).path in QUALIFIED_DETAIL_PATHS
-            in_scope = known or supported_thyme_family(job)
+            in_scope = supported_daily_record(job)
             try:
                 page = fetch_page(job.url)
                 if any(marker in page.casefold() for marker in
                        ('captcha', 'access denied', '403 forbidden', 'verify you are human')):
                     raise ValueError('DataForce detail access or challenge page.')
-                if not known and not inspection_detail_matches_index(job, page):
+                if not in_scope and not inspection_detail_matches_index(job, page):
                     raise ValueError('DataForce inspection detail is unrelated to index.')
                 if known:
                     qualified.append(qualify_detail_record(job, page))
                 elif supported_thyme_family(job):
                     qualified.append(qualify_detail_record(job, page, general=True))
+                elif supported_family(job):
+                    qualified.append(qualify_family_record(job, page))
             except (HTTPError, URLError, TimeoutError, RuntimeError, ValueError,
                     OSError, HTTPException):
                 if in_scope:
@@ -141,6 +144,11 @@ def collect_index_linked_details(jobs):
     record_pending_qualification_ids(source='dataforce',identities=pending,
         index_sha256=hashlib.sha256('\n'.join(pages).encode()).hexdigest())
     return qualified, len(urls), inspection_failures, verification_failures
+
+
+def supported_daily_record(job):
+    return (urlparse(job.url).path in QUALIFIED_DETAIL_PATHS
+        or supported_thyme_family(job) or supported_family(job) is not None)
 
 
 def supported_thyme_family(index_job):
@@ -175,12 +183,11 @@ def select_daily_detail_pages(jobs, slots, day_ordinal):
     """Refresh all current supported roles before exploratory cards.
 
     The rotation is deterministic for a UTC day and uses no new queue or
-    unseen endpoint. Non-Thyme inspected cards remain pending only.
+    unseen endpoint. Unreviewed families remain pending even after inspection.
     """
     if type(slots) is not int or not 0 <= slots <= MAX_DETAIL_PAGES or type(day_ordinal) is not int:
         raise ValueError('DataForce detail rotation bounds are invalid.')
-    supported = sorted((job for job in jobs if urlparse(job.url).path in QUALIFIED_DETAIL_PATHS
-        or supported_thyme_family(job)), key=lambda job: job.url)
+    supported = sorted((job for job in jobs if supported_daily_record(job)), key=lambda job: job.url)
     other = sorted((job for job in jobs if job not in supported
         and job.commitment == 'Remote'
         and 'minor' not in job.title.casefold()

@@ -30,6 +30,7 @@ DATAANNOTATION_ROLE_RECORD_CONTRACT_ID = "dataannotation_evergreen_role_record_v
 DATAANNOTATION_ROLES_SHAPE = "dataannotation_evergreen_roles_v2"
 DATAFORCE_INDEX_DETAIL_RECORD_CONTRACT_ID = "dataforce_index_detail_record_v1"
 DATAFORCE_THYME_FAMILY_RECORD_CONTRACT_ID = "dataforce_thyme_index_detail_family_v2"
+DATAFORCE_REMOTE_FAMILY_RECORD_CONTRACT_ID = "dataforce_remote_contributor_family_v3"
 SURGE_REMOTE_WORKFORCE_RECORD_CONTRACT_ID = "surge_remote_workforce_record_v1"
 HANDSHAKE_PUBLIC_CMS_RECORD_CONTRACT_ID = "handshake_public_cms_record_v1"
 OUTLIER_INDEX_DETAIL_RECORD_CONTRACT_ID = "outlier_index_detail_record_v1"
@@ -668,6 +669,49 @@ def _validate_dataforce_thyme_family_record_v2(
         context,provider=provider,source_type=source_type,general=True)
 
 
+def _validate_dataforce_remote_family_record_v3(
+    attestation, candidate, prepared, context, *, provider, source_type,
+):
+    # V1/V2 remain independent readers. Reconstruct this V3 record from its
+    # exact retained index card and detail rather than trusting asserted fields.
+    from dataclasses import replace
+    from wahojobs.crawler.providers.dataforce import parse_job_block
+    from wahojobs.crawler.providers.dataforce_families import qualify_record
+    metadata=json.loads(prepared.metadata_json)
+    evidence=json.loads(attestation.authority_evidence_json)
+    if (provider!='dataforce' or source_type!='dataforce-community-html'
+            or attestation.contract_id!=DATAFORCE_REMOTE_FAMILY_RECORD_CONTRACT_ID
+            or attestation.body_observation!=BODY_OBSERVATION_PRESENT
+            or prepared.body_format!='text/html' or not prepared.body
+            or context.provider_outcome!=ProviderOutcome.PARTIAL.value
+            or context.used_sample_data or context.snapshot_complete or context.pagination_complete
+            or context.crawl_run_id is None or context.candidate_count<1
+            or context.normalized_record_count!=context.candidate_count
+            or context.raw_record_count<context.normalized_record_count
+            or context.payload_shape!=DATAFORCE_INDEX_DETAIL_RECORD_CONTRACT_ID
+            or context.schema_fingerprint!=DATAFORCE_INDEX_DETAIL_RECORD_CONTRACT_ID
+            or not {'index_card_html','index_page_url','index_page_sha256','application_url',
+                'dataforce_remote_family'}<=set(metadata)
+            or re.fullmatch(r'[a-f0-9]{64}',str(metadata.get('index_page_sha256'))) is None):
+        raise ValueError('DataForce V3 source authority is inconsistent.')
+    page=urlparse(metadata['index_page_url'])
+    if (page.scheme!='https' or page.netloc!='dataforcecommunity.transperfect.com'
+            or page.path!='/projects' or page.fragment
+            or page.query and re.fullmatch(r'project_type=All&page=(?:[1-9]|1[0-9])',page.query) is None
+            or not isinstance(metadata['index_card_html'],str) or not metadata['index_card_html']):
+        raise ValueError('DataForce V3 index provenance is inconsistent.')
+    index=parse_job_block(metadata['index_card_html'],metadata['index_page_url'])
+    if (index is None or not set((index.source_metadata or {}).items())<=set(metadata.items())):
+        raise ValueError('DataForce V3 index card disagrees with source metadata.')
+    expected=qualify_record(replace(index,source_metadata=metadata),prepared.body)
+    fields=('external_id','title','url','location','commitment','department','expertise',
+        'opportunity_kind','availability_basis','include_in_live_market_estimate')
+    if (any(getattr(candidate,name)!=getattr(expected,name) for name in fields)
+            or metadata!=expected.source_metadata
+            or evidence!=expected.record_promotion_attestation.authority_evidence):
+        raise ValueError('DataForce V3 retained card/detail/application proof disagrees.')
+
+
 def _validate_surge_remote_workforce_record_v1(
     attestation, candidate, prepared, context, *, provider, source_type,
 ):
@@ -1258,6 +1302,7 @@ def decide_source_promotion_v2(
         DATAANNOTATION_CODING_RECORD_CONTRACT_ID, DATAANNOTATION_ROLE_RECORD_CONTRACT_ID,
         DATAFORCE_INDEX_DETAIL_RECORD_CONTRACT_ID,
         DATAFORCE_THYME_FAMILY_RECORD_CONTRACT_ID,
+        DATAFORCE_REMOTE_FAMILY_RECORD_CONTRACT_ID,
         SURGE_REMOTE_WORKFORCE_RECORD_CONTRACT_ID,
         HANDSHAKE_PUBLIC_CMS_RECORD_CONTRACT_ID,
         OUTLIER_INDEX_DETAIL_RECORD_CONTRACT_ID,
@@ -1514,6 +1559,7 @@ RECORD_PROMOTION_CONTRACT_VALIDATORS = {
     DATAANNOTATION_ROLE_RECORD_CONTRACT_ID: _validate_dataannotation_role_record_v2,
     DATAFORCE_INDEX_DETAIL_RECORD_CONTRACT_ID: _validate_dataforce_index_detail_record_v1,
     DATAFORCE_THYME_FAMILY_RECORD_CONTRACT_ID: _validate_dataforce_thyme_family_record_v2,
+    DATAFORCE_REMOTE_FAMILY_RECORD_CONTRACT_ID: _validate_dataforce_remote_family_record_v3,
     SURGE_REMOTE_WORKFORCE_RECORD_CONTRACT_ID: _validate_surge_remote_workforce_record_v1,
     HANDSHAKE_PUBLIC_CMS_RECORD_CONTRACT_ID: _validate_handshake_public_cms_record_v1,
     OUTLIER_INDEX_DETAIL_RECORD_CONTRACT_ID: _validate_outlier_index_detail_record_v1,
