@@ -291,24 +291,24 @@ class StagedSupervisorTests(unittest.TestCase):
             native=cli.NativeOperations(dict(state_directory=temp),'fixture')
             clock=[0];caps={};order=[]
             def phase(run_id,name,deadline):
-                self.assertLessEqual(deadline,240);self.assertGreater(deadline,clock[0])
+                self.assertLessEqual(deadline,daily.PUBLICATION_SECONDS);self.assertGreater(deadline,clock[0])
                 if name=='backup':
                     self.assertEqual(deadline,60);clock[0]+=30.877;return
                 if name=='finish':clock[0]+=2.286;return
                 source=name.removeprefix('publish-');order.append(source)
                 caps[source]=deadline-clock[0]
-                self.assertLessEqual(deadline,210)
+                self.assertLessEqual(deadline,daily.PUBLICATION_SECONDS-daily.FINAL_INTEGRITY_SECONDS)
                 self.assertGreaterEqual(caps[source],10)
                 clock[0]+=elapsed[source]
             with patch.object(cli.time,'monotonic',side_effect=lambda:clock[0]),patch.object(native,'phase',side_effect=phase):
-                native.publish('fixture',240)
+                native.publish('fixture',daily.PUBLICATION_SECONDS)
             self.assertEqual(order,sorted(weights,key=lambda source:(weights[source],source)))
             self.assertEqual(len(set(order)),14)
             self.assertGreater(caps['alignerr'],90)
             self.assertGreater(caps['handshake'],11)
             self.assertGreater(caps['mercor'],15)
             self.assertGreater(caps['meridial'],21)
-            self.assertLess(clock[0],240)
+            self.assertLess(clock[0],daily.PUBLICATION_SECONDS)
             recorded=daily.read_json(target/'publication-allocation.json')
             self.assertEqual(recorded['ordered_sources'],order)
             self.assertEqual(recorded['phase_caps_seconds'],{source:round(cap,3) for source,cap in caps.items()})
@@ -334,7 +334,7 @@ class StagedSupervisorTests(unittest.TestCase):
                 native=cli.NativeOperations(dict(state_directory=temp),'fixture')
                 clock=[0];caps={}
                 def phase(run_id,name,deadline):
-                    self.assertLessEqual(deadline,237.544)  # original 2.456 s stop deduction
+                    self.assertLessEqual(deadline,daily.PUBLICATION_SECONDS-2.456)
                     if name=='backup':clock[0]+=26.493;return
                     if name=='finish':clock[0]+=3.696;return
                     source=name.removeprefix('publish-');cap=deadline-clock[0]
@@ -342,12 +342,12 @@ class StagedSupervisorTests(unittest.TestCase):
                     self.assertLess(elapsed[source],cap)
                     clock[0]+=elapsed[source]
                 with patch.object(cli.time,'monotonic',side_effect=lambda:clock[0]),patch.object(native,'phase',side_effect=phase):
-                    native.publish('fixture',237.544)
+                    native.publish('fixture',daily.PUBLICATION_SECONDS-2.456)
                 self.assertEqual(set(caps),set(selected))
                 remaining=caps['dataforce']-1  # bounded interpreter/import allowance
                 self.assertGreaterEqual(remaining-min(3,remaining/4),10)
                 self.assertGreater(caps['alignerr'],elapsed['alignerr']+3)
-                self.assertLess(clock[0],237.544)
+                self.assertLess(clock[0],daily.PUBLICATION_SECONDS-2.456)
 
     def test_complete_history_growth_fits_fourteen_sources_with_backup_and_rollback_reserves(self):
         # Measured Sep 28 full-pool jobs/history, including conservative headroom
@@ -371,11 +371,11 @@ class StagedSupervisorTests(unittest.TestCase):
                 if name=='backup':
                     self.assertEqual(deadline,60);clock[0]+=45;return
                 if name=='finish':
-                    self.assertGreaterEqual(deadline-clock[0],20);clock[0]+=20;return
+                    self.assertGreaterEqual(deadline-clock[0],50);clock[0]+=45;return
                 source=name.removeprefix('publish-');attempted.append(source)
                 cap=deadline-clock[0]
                 self.assertLess(elapsed[source],cap-3)  # full rollback reserve
-                self.assertLessEqual(deadline,available-30)
+                self.assertLessEqual(deadline,available-daily.FINAL_INTEGRITY_SECONDS)
                 clock[0]+=elapsed[source]
             with patch.object(cli.time,'monotonic',side_effect=lambda:clock[0]),patch.object(native,'phase',side_effect=phase):
                 native.publish('fixture',available)

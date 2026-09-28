@@ -317,11 +317,12 @@ class NativeOperations:
         # Fifteen seconds includes startup and rollback; unused time still
         # reaches later sources inside the unchanged global deadline.
         sources=sorted(sources,key=lambda source:(weights[source],source))
+        finish_reserve=daily.FINAL_INTEGRITY_SECONDS
         allocation=dict(ordered_sources=sources,minimum_worker_seconds=15,
-            finish_reservation_seconds=30,phase_caps_seconds={})
+            finish_reservation_seconds=finish_reserve,phase_caps_seconds={})
         for index,source in enumerate(sources):
             current=time.monotonic()
-            remaining_sources=sources[index:];budget=max(0,deadline-30-current)
+            remaining_sources=sources[index:];budget=max(0,deadline-finish_reserve-current)
             minimum=min(15,budget/len(remaining_sources))
             extra=budget-minimum*len(remaining_sources)
             source_deadline=current+minimum+extra*weights[source]/sum(weights[s] for s in remaining_sources)
@@ -335,7 +336,7 @@ class NativeOperations:
                 if isinstance(error,(TimeoutError,subprocess.TimeoutExpired)) or any(
                         os.path.lexists(str(self.config['database'])+suffix) for suffix in ('-journal','-wal','-shm')):
                     raise
-        self.phase(run_id,'finish',min(deadline,time.monotonic()+30))
+        self.phase(run_id,'finish',min(deadline,time.monotonic()+finish_reserve))
     def restore(self,remaining):
         started=time.monotonic()
         database=Path(self.config['database'])
