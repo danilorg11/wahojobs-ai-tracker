@@ -139,7 +139,18 @@ def source_fingerprint(connection, slug):
         material[table] = [dict(r) for r in connection.execute(
             'SELECT e.* FROM ' + table + ' e JOIN canonical_opportunities co '
             'ON co.id=e.canonical_opportunity_id WHERE co.company_id=? ORDER BY e.rowid', (cid,))]
-    return digest(material)
+    return _source_fingerprint_digest(material)
+
+
+def _source_fingerprint_digest(material):
+    # Preserve the existing canonical fingerprint byte stream, including every
+    # historical row. Avoid the additional complete JSON string and UTF-8 copy
+    # of a large source's material; this is not a different hash or a cache.
+    fingerprint = sha256()
+    encoder = json.JSONEncoder(sort_keys=True, ensure_ascii=False, separators=(',', ':'), allow_nan=False)
+    for piece in encoder.iterencode(material):
+        fingerprint.update(piece.encode('utf-8'))
+    return fingerprint.hexdigest()
 
 
 def inspect_source(connection, slug, now, *, catalog_only=False):
