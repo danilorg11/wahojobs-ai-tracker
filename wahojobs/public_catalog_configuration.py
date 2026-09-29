@@ -2,7 +2,8 @@
 import json
 import re
 
-OPERATING_CONFIGURATION_PATH = '/etc/wahojobs-beta/public-catalog-v1.json'
+SOURCE_CONFIGURATION_PATH = '/etc/wahojobs-beta/public-catalog-v1.json'
+OPERATING_CONFIGURATION_PATH = '/run/wahojobs-beta/public-catalog-v1.json'
 
 
 def load_configuration(path):

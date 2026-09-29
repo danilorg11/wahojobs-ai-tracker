@@ -182,12 +182,42 @@ class PublicCatalogReaderTests(unittest.TestCase):
 
     def test_activation_template_matches_the_daily_process_pin(self):
         template = Path(__file__).resolve().parents[1] / 'deploy/private-beta/70-public-catalog.conf'
-        commands = [line.partition('=')[2] for line in template.read_text().splitlines()
+        lines = template.read_text().splitlines()
+        self.assertIn('LoadCredential=public-catalog-v1.json:' + public_config.SOURCE_CONFIGURATION_PATH, lines)
+        self.assertIn('ExecStartPre=/usr/bin/install -m 0600 %d/public-catalog-v1.json '
+                      + public_config.OPERATING_CONFIGURATION_PATH, lines)
+        self.assertNotEqual(public_config.SOURCE_CONFIGURATION_PATH,
+                            public_config.OPERATING_CONFIGURATION_PATH)
+        commands = [line.partition('=')[2] for line in lines
                     if line.startswith('ExecStart=') and line != 'ExecStart=']
         self.assertEqual(len(commands), 1)
         with patch.object(public_config, 'load_configuration', return_value={}) as load:
             daily_cli.verify_beta_process_command(shlex.split(commands[0]))
             load.assert_called_once_with(public_config.OPERATING_CONFIGURATION_PATH)
+
+    def test_public_credential_preflight_checks_source_and_runtime_copy(self):
+        with tempfile.TemporaryDirectory(prefix='public-reader-credential-') as directory:
+            source = Path(directory) / 'source.json'
+            effective = Path(directory) / 'effective.json'
+            document = dict(version=1, public_origin='https://www.wahojobs.com',
+                            gateway_key='b'*64, indexable=True)
+            raw = json.dumps(document)
+            source.write_text(raw, encoding='utf-8')
+            source.chmod(0o600)
+            with patch.object(public_config, 'SOURCE_CONFIGURATION_PATH', str(source)), \
+                    patch.object(public_config, 'OPERATING_CONFIGURATION_PATH', str(effective)):
+                self.assertTrue(daily_cli.public_catalog_credential_selected(require_effective=False))
+                with self.assertRaises(Exception):
+                    daily_cli.public_catalog_credential_selected()
+                effective.write_text(raw, encoding='utf-8')
+                effective.chmod(0o600)
+                self.assertTrue(daily_cli.public_catalog_credential_selected())
+                effective.write_text(json.dumps(dict(document, indexable=False)), encoding='utf-8')
+                with self.assertRaisesRegex(ValueError, 'public_catalog_effective_mismatch'):
+                    daily_cli.public_catalog_credential_selected()
+                source.write_text(raw[:-1], encoding='utf-8')
+                with self.assertRaises(Exception):
+                    daily_cli.public_catalog_credential_selected(require_effective=False)
 
     def test_private_routes_wrong_host_method_and_malformed_targets_are_denied(self):
         for path in ('/login', '/account/profile', '/find-matches', '/tracker', '/api/profile',

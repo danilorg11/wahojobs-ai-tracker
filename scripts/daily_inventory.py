@@ -83,6 +83,20 @@ def private_policy(path):
     return daily.read_json(path)
 
 
+def public_catalog_credential_selected(*, require_effective=True):
+    from wahojobs.public_catalog_configuration import (
+        SOURCE_CONFIGURATION_PATH, OPERATING_CONFIGURATION_PATH, load_configuration)
+    source=Path(SOURCE_CONFIGURATION_PATH)
+    if not source.exists():return False
+    load_configuration(str(source))
+    if require_effective:
+        effective=Path(OPERATING_CONFIGURATION_PATH)
+        load_configuration(str(effective))
+        if source.read_bytes()!=effective.read_bytes():
+            raise ValueError('public_catalog_effective_mismatch')
+    return True
+
+
 def verify_release_configuration(config, *, require_effective=True):
     """Shared pins also apply to recovery when the beta process is stopped."""
     import socket
@@ -102,7 +116,17 @@ def verify_release_configuration(config, *, require_effective=True):
     credential=json.loads(subprocess.check_output(['/usr/bin/busctl','--system','--json=short','--no-pager',
         'get-property','org.freedesktop.systemd1','/org/freedesktop/systemd1/unit/wahojobs_2dbeta_2eservice',
         'org.freedesktop.systemd1.Service','LoadCredential'],timeout=10))
-    if credential!={'type':'a(ss)','data':[['runtime.json',daily.RUNTIME]]}:raise ValueError('credential_selection_mismatch')
+    expected={('runtime.json',daily.RUNTIME)}
+    if public_catalog_credential_selected(require_effective=require_effective):
+        from wahojobs.public_catalog_configuration import SOURCE_CONFIGURATION_PATH
+        expected.add(('public-catalog-v1.json',SOURCE_CONFIGURATION_PATH))
+    if (credential.get('type')!='a(ss)' or type(credential.get('data')) is not list
+            or len(credential['data'])!=len(expected)
+            or any(type(item) is not list or len(item)!=2 or
+                   any(type(value) is not str for value in item)
+                   for item in credential['data'])
+            or {tuple(item) for item in credential['data']}!=expected):
+        raise ValueError('credential_selection_mismatch')
 
 
 def verify_beta_process_command(command):
