@@ -376,17 +376,33 @@ class NativeOperations:
         self.phase(run_id,'finish',min(deadline,time.monotonic()+finish_reserve))
     def restore(self,remaining):
         started=time.monotonic()
-        database=Path(self.config['database'])
+        repair_allowance=remaining-80
+        if repair_allowance<=0:raise TimeoutError('recovery_repair_allowance_exhausted')
+        def remaining_timeout():
+            allowance=min(75,remaining-(time.monotonic()-started))
+            if allowance<=0:raise TimeoutError('recovery_deadline_expired')
+            return allowance
         # A dedicated process bounds validation/recovery independently of the
         # publication deadline. It acquires lifetime ownership before opening.
         bounded_process([sys.executable,'-B',str(Path(__file__).resolve()),'repair-storage',
-            '--policy',str(self.policy)],timeout=max(.01,remaining-80))
-        bounded_process(['/usr/bin/systemctl','start',daily.SERVICE],timeout=max(.01,min(75,remaining-(time.monotonic()-started))))
+            '--policy',str(self.policy)],timeout=repair_allowance)
+        bounded_process(['/usr/bin/systemctl','start',daily.SERVICE],timeout=remaining_timeout())
         bounded_process([sys.executable,'-B','scripts/private_beta_health.py','--config','/run/wahojobs-beta/runtime.json'],
-            timeout=max(.01,min(75,remaining-(time.monotonic()-started))),user='wahojobs-beta')
-    def ready(self):
+            timeout=remaining_timeout(),user='wahojobs-beta')
+    def application_stopped(self,remaining):
+        if remaining<=0:raise TimeoutError('recovery_deadline_expired')
+        try:
+            raw=subprocess.check_output(['/usr/bin/systemctl','show',daily.SERVICE,
+                '--property=ActiveState,MainPID,ControlPID'],timeout=min(5,remaining),text=True)
+            state=dict(line.split('=',1) for line in raw.splitlines())
+        except (OSError,subprocess.SubprocessError,ValueError):return False
+        return (set(state)=={'ActiveState','MainPID','ControlPID'}
+            and state['ActiveState'] in ('inactive','failed')
+            and state['MainPID']=='0' and state['ControlPID']=='0')
+    def ready(self,remaining=25):
+        if remaining<=0:raise TimeoutError('recovery_deadline_expired')
         bounded_process([sys.executable,'-B','scripts/private_beta_health.py','--config','/run/wahojobs-beta/runtime.json'],
-            timeout=25,user='wahojobs-beta')
+            timeout=min(25,remaining),user='wahojobs-beta')
 
 
 def supervise(config,policy,trigger,*,operations=None,availability_sources=None,repair_request=None,repair_sources=None):
@@ -548,8 +564,16 @@ def recover(config,policy):
         try:
             online=False
             if old:
-                try:operations.ready();online=True
-                except Exception:pass
+                # A proven stopped service cannot answer readiness. Do not spend
+                # its repair allowance polling it; retain retries for a live or
+                # uncertain service that may still become ready.
+                remaining=recovery_deadline-time.monotonic()
+                if remaining<=0:raise TimeoutError('recovery_deadline_expired')
+                if operations.application_stopped(remaining) is not True:
+                    remaining=recovery_deadline-time.monotonic()
+                    if remaining<=0:raise TimeoutError('recovery_deadline_expired')
+                    try:operations.ready(remaining);online=True
+                    except Exception:pass
             if not online:
                 remaining=recovery_deadline-time.monotonic()
                 if remaining<=0:raise TimeoutError('recovery_deadline_expired')

@@ -242,7 +242,7 @@ print('actual_alarm_lifecycle_passed')
         with patch.object(daily, 'bounded_process', side_effect=TimeoutError) as process:
             with self.assertRaises(TimeoutError):
                 operations.restore(20)
-            self.assertEqual(process.call_count, 1)
+            self.assertEqual(process.call_count, 0)
 
     def test_no_listener_or_readiness_before_preparation_and_failure_closes_runtime(self):
         for fails in (False, True):

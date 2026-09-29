@@ -225,10 +225,25 @@ class NativeRecoveryTests(unittest.TestCase):
             normal_service_resumed=False,maintenance_seconds=179.353)
         path=state/'runs'/receipt['run_id']/'run.json';daily.write_json(path,receipt);original=path.read_bytes()
         with operation_gate(self.db):pass
-        ticks=[0,25]
-        ops=Mock();ops.ready.side_effect=RuntimeError('unavailable')
-        with patch.object(cli,'NativeOperations',return_value=ops),patch.object(cli.time,'monotonic',side_effect=ticks):
+        clock=[0.0]
+        def preflight():clock[0]+=3
+        def stopped(remaining):
+            self.assertEqual(remaining,107)
+            clock[0]+=2
+            return False
+        def unavailable(remaining):
+            self.assertEqual(remaining,105)
+            clock[0]+=20
+            raise RuntimeError('unavailable')
+        ops=Mock();ops.recovery_preflight.side_effect=preflight
+        ops.application_stopped.side_effect=stopped;ops.ready.side_effect=unavailable
+        with patch.object(cli,'NativeOperations',return_value=ops),patch.object(
+                cli.time,'monotonic',side_effect=lambda:clock[0]),patch.object(
+                daily,'now',return_value=daily.parse('2026-09-25T08:00:00+00:00')):
             cli.recover(config,'fixture')
+        ops.recovery_preflight.assert_called_once()
+        ops.application_stopped.assert_called_once_with(107)
+        ops.ready.assert_called_once_with(105)
         self.assertEqual(ops.restore.call_args.args,(85,))
         self.assertEqual(path.read_bytes(),original)
         self.assertTrue(daily.read_json(path.parent/'application-recovery.json')['application_ready'])
