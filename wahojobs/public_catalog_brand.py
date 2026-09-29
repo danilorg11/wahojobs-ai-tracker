@@ -19,7 +19,7 @@ ASSET_CSP = "img-src 'self'; font-src 'self'; "
 CSS = """
 @font-face {font-family:'Wahojobs Poppins';src:url('/assets/fonts/Poppins-Regular.ttf') format('truetype');font-weight:400;font-style:normal;font-display:swap;}
 @font-face {font-family:'Wahojobs Poppins';src:url('/assets/fonts/Poppins-Bold.ttf') format('truetype');font-weight:700;font-style:normal;font-display:swap;}
-:root {font-family:'Wahojobs Poppins',Arial,ui-sans-serif,system-ui,sans-serif;color:#11181c;background:#fafafa;}
+:root,body {font-family:'Wahojobs Poppins',Arial,ui-sans-serif,system-ui,sans-serif;color:#11181c;background:#fafafa;}
 a {color:#0c7792;}
 a:focus-visible,button:focus-visible,input:focus-visible,select:focus-visible,summary:focus-visible {outline:3px solid #04313c;outline-offset:4px;}
 .site-header.public-brand-header {width:100%;max-width:none;min-height:100px;margin:0 0 24px;padding:24px clamp(16px,3.1vw,40px);background:#05a2c2;display:flex;flex-direction:row;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:12px 24px;}

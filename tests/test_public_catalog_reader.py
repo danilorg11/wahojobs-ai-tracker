@@ -61,6 +61,7 @@ class PublicCatalogReaderTests(unittest.TestCase):
                 self.assertEqual(page.count(brand.HEADER), 1)
                 self.assertIn(brand.FAVICON, page)
                 self.assertIn(brand.CSS, page)
+                self.assertIn(":root,body {font-family:", brand.CSS)
                 self.assertIn("width='193' height='40'", page)
                 csp = dict(response.headers)['Content-Security-Policy']
                 self.assertIn("default-src 'none'", csp)
