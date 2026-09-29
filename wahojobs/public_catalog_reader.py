@@ -120,9 +120,7 @@ def opportunity_label(job, text):
     if (job.get('opportunity_kind') == 'evergreen_application'
             or re.search(r'\bstanding listing\b|\bnot a specific job opening\b', text, re.I)):
         return 'Ongoing application opportunity'
-    if job.get('opportunity_kind') == 'public_inventory_opportunity':
-        return 'Public application opportunity'
-    return 'Advertised opportunity'
+    return ''
 
 
 def prepare_publication(jobs):
@@ -170,8 +168,11 @@ def prepare_publication(jobs):
             elif kind in ('Public application opportunity', 'Advertised opportunity'):
                 kind = ''
             job['_public_activity'] = activity
-            job['_public_kind'] = ' · '.join(filter(None, (activity, kind))) or opportunity_label(job, text)
+            job['_public_kind'] = ' · '.join(filter(None, (activity, kind)))
             job['catalog_summary'] = quote
+            from wahojobs.catalog_source_geography import prepare_public_geography
+            job['_public_geography'] = prepare_public_geography(job, text)
+            catalog.prepare_catalog_location(job, job['_public_geography'])
             variants.append(job)
         if variants:
             representative = dict(max(variants, key=catalog.representative_variant_rank))

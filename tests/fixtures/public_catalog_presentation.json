@@ -1,0 +1,489 @@
+[
+  {
+    "company_slug": "alignerr",
+    "source_title": "OpenClaw Security Expert & Power User",
+    "source_location": "Remote",
+    "source_commitment": null,
+    "external_id": "ce141c1a-8ecb-4e08-a42b-b696da85ebce",
+    "listing_url": "https://www.alignerr.com/jobs/ce141c1a-8ecb-4e08-a42b-b696da85ebce",
+    "rich_provider": "alignerr",
+    "rich_external_id": "ce141c1a-8ecb-4e08-a42b-b696da85ebce",
+    "rich_source_url": "https://www.alignerr.com/jobs/ce141c1a-8ecb-4e08-a42b-b696da85ebce",
+    "rich_body_format": "text/plain",
+    "opportunity_kind": "live_posting",
+    "work_arrangement": {
+      "duration": null,
+      "eligible_countries": [],
+      "eligible_locations": [],
+      "eligible_regions": [],
+      "engagement_type": "unknown",
+      "hours_per_week_max": null,
+      "hours_per_week_min": null,
+      "location_scope": "unknown",
+      "schedule_type": "unknown",
+      "workplace_mode": "remote"
+    },
+    "variant_facts": [
+      {
+        "evidence": [
+          {
+            "authority_refs": [
+              "semantic_source:e763153f8b2849e23db96c8e1c4e8d2c7a7b8c88c7fa5ebe556518ef4fd1d83d",
+              "source_capture:5442"
+            ],
+            "basis": "deterministic_parse",
+            "confidence": "high",
+            "evidence_block_id": "E4149170e55c27a1a",
+            "evidence_text": "Remote",
+            "source_refs": [
+              "source_hash:362400254195e772824aadf07ce40ebb2c8cb32467a697447f373e14fc5f05d9"
+            ]
+          }
+        ],
+        "field_path": "attributes.work_arrangement.workplace_mode",
+        "knowledge_state": "known_value",
+        "value": "remote",
+        "variant_refs": [
+          "source_hash:362400254195e772824aadf07ce40ebb2c8cb32467a697447f373e14fc5f05d9"
+        ]
+      }
+    ],
+    "metadata": {
+      "originalCategory": "CODING",
+      "pay": "$15-75/hr"
+    },
+    "body": "Get paid to break AI. Use your security expertise to probe, test, and harden cutting-edge AI systems — fully remote and flexible...."
+  },
+  {
+    "company_slug": "appen",
+    "source_title": "Social Media Evaluator (Burmese-Myanmar)",
+    "source_location": "Myanmar",
+    "source_commitment": "Independent Contractor - Project Based",
+    "external_id": "38c79ec3-4cf5-4670-976e-1a67e7e86cf2",
+    "listing_url": "https://jobs.lever.co/appen/38c79ec3-4cf5-4670-976e-1a67e7e86cf2",
+    "rich_provider": "appen",
+    "rich_external_id": "38c79ec3-4cf5-4670-976e-1a67e7e86cf2",
+    "rich_source_url": "https://jobs.lever.co/appen/38c79ec3-4cf5-4670-976e-1a67e7e86cf2",
+    "rich_body_format": "text/plain",
+    "opportunity_kind": "live_posting",
+    "work_arrangement": {
+      "duration": null,
+      "eligible_countries": [
+        "Myanmar"
+      ],
+      "eligible_locations": [
+        "Myanmar"
+      ],
+      "eligible_regions": [],
+      "engagement_type": "freelance",
+      "hours_per_week_max": 20,
+      "hours_per_week_min": 20,
+      "location_scope": "unknown",
+      "schedule_type": "unknown",
+      "workplace_mode": "unknown"
+    },
+    "variant_facts": [
+      {
+        "evidence": [
+          {
+            "authority_refs": [
+              "semantic_source:1016cb376d86a218a54f55eaf013a193ed502b2cee1d1e948181c70dda21d2ee",
+              "source_capture:17688"
+            ],
+            "basis": "deterministic_parse",
+            "confidence": "high",
+            "evidence_block_id": "Ece7495e9897a2caf",
+            "evidence_text": "Myanmar",
+            "source_refs": [
+              "source_hash:044c1737a4640b2ec47c507fd82ade2afa55de01d9352a93fc8b76180aa3bba1"
+            ]
+          }
+        ],
+        "field_path": "attributes.work_arrangement.eligible_countries",
+        "knowledge_state": "known_value",
+        "value": "Myanmar",
+        "variant_refs": [
+          "source_hash:044c1737a4640b2ec47c507fd82ade2afa55de01d9352a93fc8b76180aa3bba1"
+        ]
+      },
+      {
+        "evidence": [
+          {
+            "authority_refs": [
+              "semantic_source:1016cb376d86a218a54f55eaf013a193ed502b2cee1d1e948181c70dda21d2ee",
+              "source_capture:17688"
+            ],
+            "basis": "source_explicit",
+            "confidence": "high",
+            "evidence_block_id": "Ece7495e9897a2caf",
+            "evidence_text": "Myanmar",
+            "source_refs": [
+              "source_hash:044c1737a4640b2ec47c507fd82ade2afa55de01d9352a93fc8b76180aa3bba1"
+            ]
+          }
+        ],
+        "field_path": "attributes.work_arrangement.eligible_locations",
+        "knowledge_state": "known_value",
+        "value": "Myanmar",
+        "variant_refs": [
+          "source_hash:044c1737a4640b2ec47c507fd82ade2afa55de01d9352a93fc8b76180aa3bba1"
+        ]
+      },
+      {
+        "evidence": [
+          {
+            "authority_refs": [
+              "semantic_source:1016cb376d86a218a54f55eaf013a193ed502b2cee1d1e948181c70dda21d2ee",
+              "source_capture:17688"
+            ],
+            "basis": "deterministic_parse",
+            "confidence": "high",
+            "evidence_block_id": "E95de3458eeb3f321",
+            "evidence_text": "Independent Contractor - Project Based",
+            "source_refs": [
+              "source_hash:044c1737a4640b2ec47c507fd82ade2afa55de01d9352a93fc8b76180aa3bba1"
+            ]
+          }
+        ],
+        "field_path": "attributes.work_arrangement.engagement_type",
+        "knowledge_state": "known_value",
+        "value": "freelance",
+        "variant_refs": [
+          "source_hash:044c1737a4640b2ec47c507fd82ade2afa55de01d9352a93fc8b76180aa3bba1"
+        ]
+      },
+      {
+        "evidence": [
+          {
+            "authority_refs": [
+              "source_capture:17688",
+              "source_content:18aaaf573dda4a188bce373e9c7b1a718db396886f91dedf90cd9069be0b04bd"
+            ],
+            "basis": "deterministic_parse",
+            "confidence": "high",
+            "evidence_block_id": "E19441babc4aa421c",
+            "evidence_text": "Key Requirements: - Must be located in Myanmar - Native/Bilingual proficiency in both written and spoken English and Burmese. - Commitment to 20 hours per week. - Operating a social media account with a willingness to provide a personal link for validation. - Access to a computer and a reliable internet connection. - Strong internet research skills. - Attention to detail and the ability to analyze information critically.",
+            "source_refs": [
+              "source_hash:044c1737a4640b2ec47c507fd82ade2afa55de01d9352a93fc8b76180aa3bba1"
+            ]
+          }
+        ],
+        "field_path": "attributes.work_arrangement.hours_per_week_max",
+        "knowledge_state": "known_value",
+        "value": 20,
+        "variant_refs": [
+          "source_hash:044c1737a4640b2ec47c507fd82ade2afa55de01d9352a93fc8b76180aa3bba1"
+        ]
+      },
+      {
+        "evidence": [
+          {
+            "authority_refs": [
+              "source_capture:17688",
+              "source_content:18aaaf573dda4a188bce373e9c7b1a718db396886f91dedf90cd9069be0b04bd"
+            ],
+            "basis": "deterministic_parse",
+            "confidence": "high",
+            "evidence_block_id": "E19441babc4aa421c",
+            "evidence_text": "Key Requirements: - Must be located in Myanmar - Native/Bilingual proficiency in both written and spoken English and Burmese. - Commitment to 20 hours per week. - Operating a social media account with a willingness to provide a personal link for validation. - Access to a computer and a reliable internet connection. - Strong internet research skills. - Attention to detail and the ability to analyze information critically.",
+            "source_refs": [
+              "source_hash:044c1737a4640b2ec47c507fd82ade2afa55de01d9352a93fc8b76180aa3bba1"
+            ]
+          }
+        ],
+        "field_path": "attributes.work_arrangement.hours_per_week_min",
+        "knowledge_state": "known_value",
+        "value": 20,
+        "variant_refs": [
+          "source_hash:044c1737a4640b2ec47c507fd82ade2afa55de01d9352a93fc8b76180aa3bba1"
+        ]
+      }
+    ],
+    "metadata": {
+      "additionalPlain": "",
+      "categories": {
+        "allLocations": [
+          "Myanmar"
+        ],
+        "commitment": "Independent Contractor - Project Based",
+        "department": "AI Trainers - Domain Experts",
+        "location": "Myanmar",
+        "team": "Social Media"
+      },
+      "country": "MM",
+      "lists": [],
+      "salaryRange": {
+        "currency": "USD",
+        "interval": "per-hour-wage",
+        "max": 2.4,
+        "min": 2.4
+      },
+      "workplaceType": "remote"
+    },
+    "body": "We are on a mission to elevate the standards of information shared on social media, to make a significant impact. As a Social Media Evaluator, you will play a pivotal role in shaping the quality and credibility of information online. This is a fantastic opportunity for individuals who are passionate about promoting trustworthy content in the digital space.\n \nKey Responsibilities:\n- Review and evaluate posts on various social media platforms.\n- Identify and analyze the quality of information shared.\n- Provide constructive feedback to enhance content credibility.\n \nKey Requirements:\n- Must be located in Myanmar\n- Native/Bilingual proficiency in both written and spoken English and Burmese.\n- Commitment to 20 hours per week.\n- Operating a social media account with a willingness to provide a personal link for validation.\n- Access to a computer and a reliable internet connection.\n- Strong internet research skills.\n- Attention to detail and the ability to analyze information critically.\n \nTo register and become a part of this exciting project, simply submit your application and we'll be in touch.\n \nJoin us in making a positive impact on social media information integrity. We look forward to welcoming you to the Uolo v2 team!\n \nThis role is a project-based opportunity with CrowdGen, where you will join as an Independent Contractor. If selected, you’ll receive an email from CrowdGen to create your account, reset your password, complete the setup, and proceed with your application.\n \n#crowdgen"
+  },
+  {
+    "company_slug": "meridial",
+    "source_title": "CVE & Application Security AI Task Auditor - Freelance AI Trainer Project",
+    "source_location": "World Wide - Remote",
+    "source_commitment": null,
+    "external_id": "4969255101",
+    "listing_url": "https://job-boards.eu.greenhouse.io/agency/jobs/4969255101",
+    "rich_provider": "meridial",
+    "rich_external_id": "4969255101",
+    "rich_source_url": "https://job-boards.eu.greenhouse.io/agency/jobs/4969255101",
+    "rich_body_format": "text/html",
+    "opportunity_kind": "live_posting",
+    "work_arrangement": {
+      "duration": null,
+      "eligible_countries": [],
+      "eligible_locations": [],
+      "eligible_regions": [],
+      "engagement_type": "freelance",
+      "hours_per_week_max": null,
+      "hours_per_week_min": null,
+      "location_scope": "remote_worldwide",
+      "schedule_type": "unknown",
+      "workplace_mode": "remote"
+    },
+    "variant_facts": [
+      {
+        "evidence": [
+          {
+            "authority_refs": [
+              "source_capture:17858",
+              "source_content:73b00979994624d17ae3e5a132053af1e4190c47fabddb58d6362ede2d4b55ed"
+            ],
+            "basis": "deterministic_parse",
+            "confidence": "high",
+            "evidence_block_id": "Ee40c3b531c5fa105",
+            "evidence_text": "Employment type:Freelance Contract",
+            "source_refs": [
+              "source_hash:743b1e880f05429d365bcca68077cf1197375bd87093c84927b630514b926627"
+            ]
+          }
+        ],
+        "field_path": "attributes.work_arrangement.engagement_type",
+        "knowledge_state": "known_value",
+        "value": "freelance",
+        "variant_refs": [
+          "source_hash:743b1e880f05429d365bcca68077cf1197375bd87093c84927b630514b926627"
+        ]
+      },
+      {
+        "evidence": [
+          {
+            "authority_refs": [
+              "semantic_source:7db120c40e46e02c6ef9a3020f7bfbc0f9e6e379c3c7fb0299e6ea0e50640935",
+              "source_capture:17858"
+            ],
+            "basis": "deterministic_parse",
+            "confidence": "high",
+            "evidence_block_id": "Eb218e8c8381828b8",
+            "evidence_text": "World Wide - Remote",
+            "source_refs": [
+              "source_hash:743b1e880f05429d365bcca68077cf1197375bd87093c84927b630514b926627"
+            ]
+          }
+        ],
+        "field_path": "attributes.work_arrangement.location_scope",
+        "knowledge_state": "known_value",
+        "value": "remote_worldwide",
+        "variant_refs": [
+          "source_hash:743b1e880f05429d365bcca68077cf1197375bd87093c84927b630514b926627"
+        ]
+      },
+      {
+        "evidence": [
+          {
+            "authority_refs": [
+              "source_capture:17858",
+              "source_content:73b00979994624d17ae3e5a132053af1e4190c47fabddb58d6362ede2d4b55ed"
+            ],
+            "basis": "deterministic_parse",
+            "confidence": "high",
+            "evidence_block_id": "E91847541ca37407d",
+            "evidence_text": "Workplace type:Remote",
+            "source_refs": [
+              "source_hash:743b1e880f05429d365bcca68077cf1197375bd87093c84927b630514b926627"
+            ]
+          },
+          {
+            "authority_refs": [
+              "semantic_source:7db120c40e46e02c6ef9a3020f7bfbc0f9e6e379c3c7fb0299e6ea0e50640935",
+              "source_capture:17858"
+            ],
+            "basis": "deterministic_parse",
+            "confidence": "high",
+            "evidence_block_id": "Eb218e8c8381828b8",
+            "evidence_text": "World Wide - Remote",
+            "source_refs": [
+              "source_hash:743b1e880f05429d365bcca68077cf1197375bd87093c84927b630514b926627"
+            ]
+          }
+        ],
+        "field_path": "attributes.work_arrangement.workplace_mode",
+        "knowledge_state": "known_value",
+        "value": "remote",
+        "variant_refs": [
+          "source_hash:743b1e880f05429d365bcca68077cf1197375bd87093c84927b630514b926627"
+        ]
+      }
+    ],
+    "metadata": {
+      "ai_disclaimer": null,
+      "ai_opt_out_request_url": "http://s101.recruiting.eu.greenhouse.io/ai_opt_out_request/job_post/4969255101/ai_opt_out",
+      "application_deadline": null,
+      "company_name": "Meridial",
+      "data_compliance": [
+        {
+          "demographic_data_consent_applies": false,
+          "requires_consent": false,
+          "requires_processing_consent": false,
+          "requires_retention_consent": false,
+          "retention_period": null,
+          "type": "gdpr"
+        }
+      ],
+      "departments": [
+        {
+          "child_ids": [],
+          "id": 4058465101,
+          "name": "STEM",
+          "parent_id": 4058464101
+        }
+      ],
+      "education": "education_required",
+      "first_published": "2026-09-04T15:29:55-04:00",
+      "include_ai_disclaimer": null,
+      "internal_job_id": 4519413101,
+      "language": "en",
+      "metadata": [
+        {
+          "id": 7403005101,
+          "name": "Priority",
+          "value": "Low",
+          "value_type": "single_select"
+        },
+        {
+          "id": 12185434101,
+          "name": "Language Proficiency",
+          "value": [],
+          "value_type": "multi_select"
+        },
+        {
+          "id": 12400224101,
+          "name": "Marketplace Website - Job Cards",
+          "value": null,
+          "value_type": "single_select"
+        },
+        {
+          "id": 12446740101,
+          "name": "Unique Role Location",
+          "value": [],
+          "value_type": "multi_select"
+        }
+      ],
+      "offices": [
+        {
+          "child_ids": [],
+          "id": 4004889101,
+          "location": null,
+          "name": "Worldwide - Remote",
+          "parent_id": null
+        }
+      ],
+      "requisition_id": "2224"
+    },
+    "body": "&lt;p data-path-to-node=&quot;71&quot;&gt;&lt;strong data-path-to-node=&quot;71&quot; data-index-in-node=&quot;0&quot;&gt;Project Overview&lt;/strong&gt;&lt;span class=&quot;Apple-converted-space&quot;&gt;&amp;nbsp;&lt;/span&gt;We are sourcing experienced technical specialists in CVE and Application Security to audit tasks used to train and evaluate AI systems. The objective of this project is to ensure that AI training workflows and tasks are technically rigorous, practical, and highly accurate within your specific area of expertise.&lt;/p&gt;\n&lt;p data-path-to-node=&quot;72&quot;&gt;&lt;strong data-path-to-node=&quot;72&quot; data-index-in-node=&quot;0&quot;&gt;Project Deliverables &amp;amp; Scope&lt;/strong&gt;&lt;/p&gt;\n&lt;ul data-path-to-node=&quot;73&quot;&gt;\n&lt;li&gt;\n&lt;p data-path-to-node=&quot;73,0,0&quot;&gt;&lt;strong data-path-to-node=&quot;73,0,0&quot; data-index-in-node=&quot;0&quot;&gt;Task Evaluation:&lt;/strong&gt;&lt;span class=&quot;Apple-converted-space&quot;&gt;&amp;nbsp;&lt;/span&gt;Assess whether CVE and security tasks are technically accurate, realistic, solvable, reproducible, and supported by reliable tests and evaluation criteria.&lt;/p&gt;\n&lt;/li&gt;\n&lt;li&gt;\n&lt;p data-path-to-node=&quot;73,1,0&quot;&gt;&lt;strong data-path-to-node=&quot;73,1,0&quot; data-index-in-node=&quot;0&quot;&gt;Technical Auditing &amp;amp; Feedback:&lt;/strong&gt;&lt;span class=&quot;Apple-converted-space&quot;&gt;&amp;nbsp;&lt;/span&gt;Provide clear, actionable feedback on any identified security vulnerabilities, exploit execution flaws, or mitigation logic errors within the tasks.&lt;/p&gt;\n&lt;/li&gt;\n&lt;/ul&gt;\n&lt;p data-path-to-node=&quot;74&quot;&gt;&lt;strong data-path-to-node=&quot;74&quot; data-index-in-node=&quot;0&quot;&gt;Required Expertise&lt;/strong&gt;&lt;/p&gt;\n&lt;ul data-path-to-node=&quot;75&quot;&gt;\n&lt;li&gt;\n&lt;p data-path-to-node=&quot;75,0,0&quot;&gt;Demonstrable professional experience and deep technical knowledge in Application Security (including vulnerability assessment, secure coding practices, and threat modeling).&lt;span class=&quot;Apple-converted-space&quot;&gt;&amp;nbsp;&lt;/span&gt;&lt;em data-path-to-node=&quot;75,0,0&quot; data-index-in-node=&quot;174&quot;&gt;(Note: Candidates will be considered for one specialty based on their experience; expertise across other domains is not required).&lt;/em&gt;&lt;/p&gt;\n&lt;/li&gt;\n&lt;li&gt;\n&lt;p data-path-to-node=&quot;75,1,0&quot;&gt;Strong analytical and problem-solving skills to rigorously test, troubleshoot, and evaluate complex technical scenarios.&lt;/p&gt;\n&lt;/li&gt;\n&lt;/ul&gt;\n&lt;p id=&quot;p-rc_7d3e4a2a52b63ff0-34&quot; data-path-to-node=&quot;76&quot;&gt;We offer a pay rate of $60 per hour, with the exact rate determined after evaluating your experience, expertise, and geographic location. As a contractor you’ll supply a secure computer and high‑speed internet; company‑sponsored benefits such as health insurance and PTO do not apply.&lt;/p&gt;\n&lt;p&gt;&amp;nbsp;&lt;/p&gt;\n&lt;p data-path-to-node=&quot;77&quot;&gt;&lt;strong data-path-to-node=&quot;77&quot; data-index-in-node=&quot;0&quot;&gt;Employment type:&lt;/strong&gt;&lt;span class=&quot;Apple-converted-space&quot;&gt;&amp;nbsp;&lt;/span&gt;Freelance Contract&lt;/p&gt;\n&lt;p data-path-to-node=&quot;78&quot;&gt;&lt;strong data-path-to-node=&quot;78&quot; data-index-in-node=&quot;0&quot;&gt;Workplace type:&lt;/strong&gt;&lt;span class=&quot;Apple-converted-space&quot;&gt;&amp;nbsp;&lt;/span&gt;Remote&lt;/p&gt;"
+  },
+  {
+    "company_slug": "rws",
+    "source_title": "Speech AI Evaluation Specialist - Vietnamese (Malaysia)",
+    "source_location": "Kuala Lumpur",
+    "source_commitment": "Temporary/Contract",
+    "external_id": "a781dc8a-1f62-48af-af20-4106b9682120",
+    "listing_url": "https://jobs.lever.co/rws/a781dc8a-1f62-48af-af20-4106b9682120",
+    "rich_provider": "rws",
+    "rich_external_id": "a781dc8a-1f62-48af-af20-4106b9682120",
+    "rich_source_url": "https://jobs.lever.co/rws/a781dc8a-1f62-48af-af20-4106b9682120",
+    "rich_body_format": "text/plain",
+    "opportunity_kind": "live_posting",
+    "work_arrangement": {
+      "duration": null,
+      "eligible_countries": [],
+      "eligible_locations": [],
+      "eligible_regions": [],
+      "engagement_type": "temporary",
+      "hours_per_week_max": null,
+      "hours_per_week_min": null,
+      "location_scope": "unknown",
+      "schedule_type": "flexible",
+      "workplace_mode": "unknown"
+    },
+    "variant_facts": [
+      {
+        "evidence": [
+          {
+            "authority_refs": [
+              "semantic_source:dd7df518655deecbfc7ee69c30c344f4d9e621a4b946ad60d4ed23e57fc4c0c5",
+              "source_capture:19517"
+            ],
+            "basis": "deterministic_parse",
+            "confidence": "high",
+            "evidence_block_id": "E2c3e996ca7872f11",
+            "evidence_text": "Temporary/Contract",
+            "source_refs": [
+              "source_hash:f28ac127d3f8310a6d22c16920d6f7da2c43dbc125cf08c50dccbb3497cc9feb"
+            ]
+          }
+        ],
+        "field_path": "attributes.work_arrangement.engagement_type",
+        "knowledge_state": "known_value",
+        "value": "temporary",
+        "variant_refs": [
+          "source_hash:f28ac127d3f8310a6d22c16920d6f7da2c43dbc125cf08c50dccbb3497cc9feb"
+        ]
+      },
+      {
+        "evidence": [
+          {
+            "authority_refs": [
+              "source_capture:19517",
+              "source_content:c096915b0137f4718882192994901137a3998c2c34f104ecf30641a95799378b"
+            ],
+            "basis": "deterministic_parse",
+            "confidence": "high",
+            "evidence_block_id": "E845d7823716d6e4b",
+            "evidence_text": "What We Offer Flexible schedule Opportunity to earn extra income Timely payments The job is ideal for students, part-timers, or stay-at-home parents",
+            "source_refs": [
+              "source_hash:f28ac127d3f8310a6d22c16920d6f7da2c43dbc125cf08c50dccbb3497cc9feb"
+            ]
+          }
+        ],
+        "field_path": "attributes.work_arrangement.schedule_type",
+        "knowledge_state": "known_value",
+        "value": "flexible",
+        "variant_refs": [
+          "source_hash:f28ac127d3f8310a6d22c16920d6f7da2c43dbc125cf08c50dccbb3497cc9feb"
+        ]
+      }
+    ],
+    "metadata": {
+      "additionalPlain": "Vendor Type\n \nWhen applying, please select the option that best describes your working status.\n \nAre you a Freelancer or Private Individual?\nA Freelancer is someone who has a business license and may have a VAT number or EIN for tax purposes. A VAT (Value Added Tax) number is a unique identifier assigned to registered businesses in many countries; an EIN (Employer Identification Number) is a similar identifier used in the US. A Private Individual does not have a business license. If you aren’t sure, you are probably a private individual.\n \nRWS embraces DEI and promotes equal opportunity, we are an Equal Opportunity Employer and prohibit discrimination and harassment of any kind. RWS is committed to the principle of equal employment opportunity for all employees and to providing employees with a work environment free of discrimination and harassment. All employment decisions at RWS are based on business needs, job requirements and individual qualifications, without regard to race, religion, nationality, ethnicity, sex, age, disability, or sexual orientation. RWS will not tolerate discrimination based on any of these characteristics. \n",
+      "categories": {
+        "allLocations": [
+          "Kuala Lumpur"
+        ],
+        "commitment": "Temporary/Contract",
+        "department": "RWS",
+        "location": "Kuala Lumpur",
+        "team": "TrainAI"
+      },
+      "country": "MY",
+      "lists": [],
+      "workplaceType": "remote"
+    },
+    "body": "We are looking for Speech AI Evaluation Specialists living in Malaysia to support the improvement of AI-generated content in Vietnamese.\n \nJob Type: Freelance\nLocation: Malasya (work from home)\nWork Schedule: Part-time - 10+ hours per week. Flexible - work whenever you want.\nStart Date: Immediately\nDuration: TBC\nRate: 18 USD per hour\n \nHelp Shape the Future of AI\nAre you a student, recent graduate, stay-at-home parent, gig worker, or professional living in Malaysia and seeking flexible remote work? Are you interested in shaping the development and safety of today’s AI models?\n \nWhat You’ll Do\nParticipate in short voice conversations with AI models using a designated platform.\nFollow provided scenarios and prompts during interactions.\nEvaluate AI responses based on factors such as relevance, accuracy, clarity, and overall quality.\nProvide objective ratings and feedback according to project guidelines.\nComplete assigned tasks within established quality and productivity expectations.\n \nWhat we’re looking for:\nNative-level fluency in Vietnamese\nEnglish Proficiency: Fluent or advanced proficiency in English (levels B2–C2)\nAI & Data Capabilities (Preferred): Experience in one or more of the following areas: machine learning tasks, data collection and preprocessing, data evaluation and quality assurance, and data annotation and labeling.\n \nWhat We Offer\nFlexible schedule\nOpportunity to earn extra income\nTimely payments\nThe job is ideal for students, part-timers, or stay-at-home parents\n \n#LI-PR15"
+  }
+]

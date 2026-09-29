@@ -237,6 +237,25 @@ def refresh_catalog_time(jobs, *, now):
     return refreshed
 
 
+def prepare_catalog_location(job, eligibility):
+    """Replace only the public prepared location projection; keep other facets."""
+    countries, regions = set(eligibility['countries']), set(eligibility['regions'])
+    labels = countries | regions
+    if eligibility['scope'] == LOCATION_SCOPE_REMOTE_WORLDWIDE:
+        labels.add('Worldwide')
+    job['_catalog_location_model'] = dict(scope=eligibility['scope'], mode=eligibility['mode'],
+        countries=frozenset(countries), regions=frozenset(regions),
+        country_filter_dimension=eligibility.get('country_filter_dimension'),
+        applicant_country_dimensions=eligibility.get('applicant_country_dimensions'))
+    labels_by_key = {facet_value_key(value): value for value in labels}
+    job['_catalog_filter_labels'] = dict(job['_catalog_filter_labels'], location=labels_by_key)
+    job['_catalog_filter_values'] = dict(job['_catalog_filter_values'], location=set(labels_by_key))
+    job['catalog_location'] = eligibility.get('summary')
+    job['_catalog_search'] = normalize_search(' '.join(filter(None, (
+        job.get('_catalog_search'), eligibility.get('summary'),
+        public_job_page.enum_label(eligibility['mode']), job.get('catalog_summary')))))
+
+
 def prepare_catalog_presentation(job):
     job.pop("_catalog_variants", None)  # Re-preparing a standalone variant discards any old grouping.
     attributes = job["enrichment"]["attributes"]

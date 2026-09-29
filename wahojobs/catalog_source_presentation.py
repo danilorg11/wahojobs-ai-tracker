@@ -9,7 +9,7 @@ import json
 import re
 from urllib.parse import urlsplit
 
-PRESENTATION_VERSION = 2
+PRESENTATION_VERSION = 3
 _VOID = {'area', 'base', 'br', 'col', 'embed', 'hr', 'img', 'input', 'link', 'meta', 'param', 'source', 'track', 'wbr'}
 _OMIT = {'script', 'style', 'nav', 'footer', 'form', 'button', 'input', 'select', 'textarea', 'svg', 'iframe'}
 
@@ -203,6 +203,16 @@ def contribution_context(job, text, pay, surge_fields=None):
         label = 'Paid data contribution' if pay else 'Data contribution'
         quote = next((p for p in blocks if re.search(r'\bdataset\b|collecte de données|collect.{0,30}(?:data|recordings)', p, re.I)
                       and len(p) > 70), '')
+    elif re.search(r'\bsocial media evaluator\b', title, re.I) and (social := next((
+            p for p in blocks if re.search(r'\b(?:review|evaluate)\b.{0,70}\bposts\b.{0,40}\bsocial media\b', p, re.I)), '')):
+        label = 'Social media evaluation'
+        quote = next((sentence.strip(' -') for sentence in re.split(r'(?<=[.!?])\s+|\n', social)
+                      if re.search(r'\b(?:review|evaluate)\b.{0,70}\bposts\b.{0,40}\bsocial media\b', sentence, re.I)), social)
+    elif re.search(r'\bsecurity\b', title, re.I) and (security := next((
+            p for p in blocks if re.search(r'\b(?:probe|test|harden)\b.{0,100}\bAI (?:systems|models)\b', p, re.I)), '')):
+        label = 'AI security testing'
+        quote = next((sentence for sentence in re.split(r'(?<=[.!?])\s+', security)
+                      if re.search(r'\b(?:probe|test|harden)\b', sentence, re.I)), security)
     elif action or re.search(r'\bAI (?:trainer|training|evaluator|tutor)\b', title, re.I):
         label, quote = 'AI training & evaluation', action
     else:

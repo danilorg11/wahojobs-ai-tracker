@@ -8,13 +8,14 @@ from wahojobs.candidate_source_display import pay_facts, plain
 def has_applicant_geography(eligibility):
     return bool(eligibility.get('countries') or eligibility.get('regions')
                 or eligibility.get('scope') not in (None, '', 'unknown')
-                or eligibility.get('dimension_details'))
+                or eligibility.get('dimension_details') or eligibility.get('geography_unresolved'))
 
 
 def location_summary(job):
     from wahojobs.public_job_page import candidate_job_eligibility, enum_label
     eligibility = candidate_job_eligibility(job)
-    parts = [enum_label(eligibility.get('mode'))]
+    parts = ['Work mode needs confirmation' if eligibility.get('workplace_conflict')
+             else enum_label(eligibility.get('mode'))]
     if has_applicant_geography(eligibility):
         parts.append(eligibility.get('summary'))
     return ' · '.join(part for part in parts if part)

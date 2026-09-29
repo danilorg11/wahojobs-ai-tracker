@@ -241,7 +241,7 @@ class PublicCatalogReaderTests(unittest.TestCase):
         self.assertEqual(opportunity_label({}, 'This is a standing listing, not a specific job opening.'),
                          'Ongoing application opportunity')
         self.assertEqual(opportunity_label({}, 'Help recruiters maintain their talent pool records.'),
-                         'Advertised opportunity')
+                         '')
 
     def test_missing_description_never_bypasses_destination_or_source_identity(self):
         variant = self.jobs[0]['_catalog_variants'][0]

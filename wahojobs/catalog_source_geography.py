@@ -5,8 +5,124 @@ current location when that dimension is present; otherwise it addresses an
 explicit residence requirement. It never certifies both for a person.
 """
 from copy import deepcopy
+import re
+from urllib.parse import urlsplit
 
 from wahojobs.matching.source_geography import apply_mercor_applicant_geography
+
+
+def prepare_public_geography(job, text):
+    """Recover retained role facts once; never alter matching or source records.
+
+    Lever's workplaceType is distinct from its office/country metadata. A
+    bounded applicant clause may fill missing geography, never a locale or
+    office. Existing accepted dimensions, scoped facts and overrides win.
+    """
+    from wahojobs.public_job_page import candidate_job_eligibility, natural_join
+    from wahojobs.catalog_source_presentation import bound_metadata
+    from wahojobs.matching.source_geography import (_description_countries,
+                                                   prepare_applicant_residence_clause)
+    result = dict(candidate_job_eligibility(job))
+    # Accepted Mercor clauses already resolve current location, residence and
+    # exclusions. Older generic normalized facts cannot replace that packet.
+    if result.get('applicant_geography_basis') == 'accepted_source':
+        return result
+    overrides = set(job.get('overridden_fields') or ())
+    guarded = overrides | {
+        fact.get('field_path') for fact in job['enrichment'].get('variant_facts', [])}
+    prefix = 'attributes.work_arrangement.'
+    arrangement = job['enrichment']['attributes']['work_arrangement']
+    if prefix + 'workplace_mode' in guarded:
+        result['mode'] = arrangement.get('workplace_mode') or 'unknown'
+    if prefix + 'location_scope' in guarded:
+        result['scope'] = arrangement.get('location_scope') or 'unknown'
+    for field, key in (('eligible_countries','countries'), ('eligible_regions','regions')):
+        if prefix + field in guarded:
+            result[key] = tuple(arrangement.get(field) or ())
+    metadata = bound_metadata(job)
+    lever = bool(metadata and urlsplit(job.get('listing_url') or '').hostname == 'jobs.lever.co')
+    if (lever and result['mode'] == 'unknown' and prefix + 'workplace_mode' not in guarded
+            and metadata.get('workplaceType') in ('remote', 'hybrid', 'on-site')):
+        result['mode'] = {'on-site': 'onsite'}.get(metadata['workplaceType'], metadata['workplaceType'])
+        if (result['mode'] == 'remote' and re.search(
+                r'\b(?:engagement type\s*:\s*onsite project|full[- ]day onsite sessions)\b', text, re.I)):
+            result.update(mode='unknown', workplace_conflict=True)
+
+    geography_guarded = any(prefix + field in guarded for field in
+        ('location_scope', 'eligible_countries', 'eligible_regions', 'eligible_locations'))
+    # Recover only exact applicant clauses, not arbitrary country mentions.
+    clauses, unresolved_restriction = [], False
+    mandatory = re.compile(r'^(?:(?:Applicants|Candidates|Contributors|Workers|You) '
+        r'(?:must|are required to)|Must)\b.{0,35}\b(?:based|located|resid\w*|liv\w*)\b', re.I)
+    if (lever and not geography_guarded) or result['scope'] == 'remote_worldwide':
+        for block in re.split(r'\n+|(?<=[.!?])\s+', text):
+            block = block.strip(' *#-')
+            # The shared parser expects a qualification, not an arbitrary body
+            # sentence. Bare "Based in Malaysia" may describe an office.
+            required = bool(mandatory.search(block))
+            clause = (prepare_applicant_residence_clause(block, 'required', 'retained_role_description')
+                      if required else None)
+            if required and (not clause or clause.get('unresolved')):
+                unresolved_restriction = True
+            if not clause:
+                match = re.fullmatch(r"We(?:'re|’re| are) looking for [\w ,()—–-]+? "
+                    r'(?P<place>living|residing) in (?P<countries>.+?) to .+', block, re.I)
+                if lever and match and not re.search(r'\b(?:not|except|unless|preferred|if)\b', block, re.I):
+                    countries, unresolved = _description_countries(match['countries'])
+                    clause = dict(countries=countries, unresolved=unresolved, dimension='residence')
+            if clause and clause['countries'] and not clause['unresolved']:
+                clauses.append(clause)
+        if (unresolved_restriction or (clauses and geography_guarded)) and result['scope'] == 'remote_worldwide':
+            # A global claim cannot overrule a contrary applicant condition.
+            # Preserve manual/scoped source data; withhold that public claim.
+            result.update(scope='unknown', countries=(), regions=(),
+                          geography_unresolved=True,
+                          summary='Location requirements need confirmation',
+                          fact='Location requirements need confirmation')
+            return result
+        if clauses and not geography_guarded and not result.get('applicant_country_dimensions'):
+            dimensions = {c['dimension'] for c in clauses}
+            allowed = set.intersection(*(set(c['countries']) for c in clauses))
+            existing = set(result['countries'])
+            if existing:
+                allowed &= existing
+            if len(dimensions) == 1 and allowed and not result['regions']:
+                result.update(countries=tuple(sorted(allowed)),
+                    country_filter_dimension=next(iter(dimensions)),
+                    applicant_geography_basis='retained_applicant_clause')
+            elif not allowed:
+                result.update(countries=(), regions=(), scope='unknown',
+                              geography_unresolved=True,
+                              summary='Location requirements need confirmation',
+                              fact='Location requirements need confirmation')
+                return result
+
+    countries, regions = result['countries'], result['regions']
+    if countries or regions:
+        if result['scope'] == 'remote_worldwide' or (not geography_guarded and result['mode'] == 'remote'):
+            result['scope'] = 'remote_restricted'
+        elif not geography_guarded and result['scope'] == 'unknown':
+            result['scope'] = 'onsite_or_hybrid_restricted'  # restriction scope, not a mode assertion
+        labels = regions or countries
+        summary = natural_join(labels) if len(labels) <= 3 else str(len(labels)) + ' countries'
+        result.update(summary=summary, fact=natural_join(labels),
+                      detail_countries=countries if len(countries) > 4 else ())
+    elif result['scope'] == 'remote_worldwide':
+        # A normalized empty restriction list is not proof of global availability.
+        # Require the role's own listing location or an accepted scoped quote.
+        worldwide = re.compile(r'\b(?:world\s*wide|anywhere (?:in the world|worldwide))\b', re.I)
+        quotes = [job.get('source_location') or ''] + [str(e.get('evidence_text') or '')
+            for f in job['enrichment'].get('variant_facts', [])
+            if f.get('field_path') == prefix + 'location_scope'
+            for e in f.get('evidence', [])]
+        if any(worldwide.search(q) for q in quotes):
+            result.update(summary='Worldwide', fact='Worldwide')
+        else:
+            result.update(scope='unknown', summary=None, fact=None)
+    elif result.get('summary', '') and result['summary'].startswith(('Eligible in ', 'Eligible across ')):
+        # A listing city alone can be an office, not an applicant restriction.
+        result.update(summary=None, fact=None)
+    return result
 
 
 def attach_catalog_geography(connection, rows):

@@ -856,9 +856,15 @@ def render_public_job_page(
         else ""
     )
     workplace_label = enum_label(arrangement["workplace_mode"])
+    if public_reader and '_public_geography' in job:
+        from wahojobs.catalog_display import location_summary
+        source_location = location_summary(job)
+        eligibility_fact = None  # one compact mode/geography line in both views
+        workplace_label = None
     fact_items = unique_pairs_by_value(compact_pairs(
         (
-            ("Work arrangement" if (source_location or '').casefold() in ('remote', 'onsite', 'hybrid') else "Location", source_location),
+            ("Work arrangement & location" if public_reader else
+             "Work arrangement" if (source_location or '').casefold() in ('remote', 'onsite', 'hybrid') else "Location", source_location),
             (
                 "Where you can work from",
                 eligibility_fact,
@@ -1065,7 +1071,7 @@ def render_public_job_page(
     <article>
       <header class='hero'>
         <div class='hero-copy'>
-          <p class='eyebrow'>{e(job.get('_public_kind', 'Job opportunity')) if public_reader else 'Job opportunity'}</p>
+          {("<p class='eyebrow'>" + e(job.get('_public_kind') or '') + "</p>") if public_reader and job.get('_public_kind') else "" if public_reader else "<p class='eyebrow'>Job opportunity</p>"}
           <h1>{e(page_title)}</h1>
           <p class='company-line'>{company_link}</p>
           {f"<p class='candidate-overview'>{e(job.get('catalog_summary'))}</p>" if public_reader and job.get('catalog_summary') else ''}
@@ -1251,6 +1257,8 @@ def render_labeled_list(label, values):
 
 def candidate_job_eligibility(job):
     """Keep exact prepared applicant invitations distinct from restrictions."""
+    if '_public_geography' in job:
+        return job['_public_geography']
     eligibility = candidate_eligibility(job['enrichment']['attributes']['work_arrangement'],
                                         job.get('source_location'))
     from wahojobs.catalog_source_geography import mercor_candidate_eligibility

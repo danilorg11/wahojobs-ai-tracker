@@ -1299,7 +1299,9 @@ class _SourceHTMLTextParser(HTMLParser):
             self.parts.append("\n")
 
     def handle_data(self, data):
-        if not self.ignored_depth and data.strip():
+        if not self.ignored_depth:
+            # Inline whitespace (including an Apple-converted-space NBSP) is
+            # source content: dropping it joins a heading/label to its body.
             self.parts.append(data)
 
 
