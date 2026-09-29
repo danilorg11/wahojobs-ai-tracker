@@ -280,7 +280,7 @@ class PersistentProfileBrowserIntegration:
     def prepare_serving_inventory(self):
         if self._closed or self._matches_integration is None:
             raise ValueError('inventory_preparation_closed')
-        self._matches_integration.prepare_serving_inventory()
+        return self._matches_integration.prepare_serving_inventory()
 
     def matches_route(self, path: str) -> bool:
         if path == PERSISTENT_PROFILE_ROUTE:

@@ -2,6 +2,7 @@
 from concurrent.futures import ThreadPoolExecutor
 from contextlib import closing
 from datetime import timedelta
+import json
 import sqlite3
 import os
 import subprocess
@@ -52,6 +53,34 @@ class CatalogPreparationTests(unittest.TestCase):
         self.assertEqual(after, self.load(None))
         self.write("UPDATE jobs SET is_active=0")
         self.assertEqual(self.load(cache), [])
+
+    def test_actual_enrichment_and_override_edits_invalidate_without_producer_hash_change(self):
+        cache = catalog.CatalogPreparation()
+        self.load(cache)
+        with ReadOnlyProvider(self.path)() as connection:
+            original = connection.execute(
+                'SELECT automatic_document_json, input_sha256 FROM opportunity_enrichments '
+                'WHERE canonical_opportunity_id=9002').fetchone()
+        document = json.loads(original['automatic_document_json'])
+        document['attributes']['compensation']['notes'] = 'Rémunération après acceptation.'
+        self.write('UPDATE opportunity_enrichments SET automatic_document_json=? '
+                   'WHERE canonical_opportunity_id=9002', (json.dumps(document),))
+        self.assertEqual(self.load(cache), self.load(None))
+        effective = cache.effective[9002][1]
+        self.assertEqual(effective['automatic_input_sha256'], original['input_sha256'])
+        self.assertEqual(effective['document']['attributes']['compensation']['notes'],
+                         'Rémunération après acceptation.')
+        self.write("INSERT INTO opportunity_enrichment_overrides "
+                   "(canonical_opportunity_id,field_path,operation,value_json,actor,reason) "
+                   "VALUES (9002,'attributes.compensation.notes','set',?,'synthetic','test')",
+                   (json.dumps('Payment after acceptance.'),))
+        self.load(cache)
+        self.write("UPDATE opportunity_enrichment_overrides SET value_json=? "
+                   "WHERE field_path='attributes.compensation.notes'",
+                   (json.dumps('Payment in two stages after acceptance.'),))
+        self.assertEqual(self.load(cache), self.load(None))
+        self.assertEqual(cache.effective[9002][1]['document']['attributes']['compensation']['notes'],
+                         'Payment in two stages after acceptance.')
 
     def test_unchanged_refresh_keeps_shared_evidence_instead_of_duplicate_sql_strings(self):
         cache = catalog.CatalogPreparation()

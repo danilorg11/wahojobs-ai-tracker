@@ -4939,6 +4939,26 @@ def resolve_effective_enrichment(conn, canonical_opportunity_id: int) -> dict | 
     return _resolve_effective_enrichment_rows(enrichment, overrides)
 
 
+def _enrichment_preparation_key(enrichment, overrides):
+    """Bind actual stored values without retaining a second full JSON inventory."""
+    digest = hashlib.sha256()
+    for row in (enrichment, *overrides):
+        digest.update(b'row\0')
+        for value in row:
+            if isinstance(value, str):
+                digest.update(b's' + str(len(value)).encode('ascii') + b':')
+                for offset in range(0, len(value), 65536):
+                    digest.update(value[offset:offset + 65536].encode('utf-8', 'surrogatepass'))
+            elif isinstance(value, bytes):
+                digest.update(b'b' + str(len(value)).encode('ascii') + b':')
+                digest.update(value)
+            else:
+                raw = repr(value).encode('ascii')
+                digest.update(b'p' + str(len(raw)).encode('ascii') + b':' + raw)
+        digest.update(b'end\0')
+    return digest.digest()
+
+
 def resolve_effective_enrichments(
     conn,
     canonical_opportunity_ids,
@@ -4951,18 +4971,13 @@ def resolve_effective_enrichments(
     if not canonical_ids:
         return {}
 
-    enrichments = {}
-    overrides = defaultdict(list)
+    results = {}
+    prepared = {}
     chunk_size = 500
     for offset in range(0, len(canonical_ids), chunk_size):
         chunk = canonical_ids[offset : offset + chunk_size]
         placeholders = ",".join("?" for _value in chunk)
-        for row in conn.execute(
-            "SELECT * FROM opportunity_enrichments "
-            f"WHERE canonical_opportunity_id IN ({placeholders})",
-            chunk,
-        ).fetchall():
-            enrichments[int(row["canonical_opportunity_id"])] = row
+        overrides = defaultdict(list)
         for row in conn.execute(
             "SELECT * FROM opportunity_enrichment_overrides "
             f"WHERE canonical_opportunity_id IN ({placeholders}) "
@@ -4970,19 +4985,23 @@ def resolve_effective_enrichments(
             chunk,
         ).fetchall():
             overrides[int(row["canonical_opportunity_id"])].append(row)
-
-    results = {}
-    prepared = {}
-    for canonical_id, enrichment in enrichments.items():
-        edits = overrides.get(canonical_id, ())
-        # Compare the actual stored bytes, not a producer-supplied digest or
-        # timestamp. This optional catalog-owned cache contains no account data.
-        key = (tuple(enrichment), tuple(tuple(row) for row in edits))
-        previous = preparation_cache.get(canonical_id) if preparation_cache is not None else None
-        result = (previous[1] if previous is not None and previous[0] == key
-                  else _resolve_effective_enrichment_rows(enrichment, edits))
-        results[canonical_id] = result
-        prepared[canonical_id] = (key, result)
+        # Resolve each row while streaming its bounded query. Do not retain all
+        # encoded documents alongside all decoded documents for the generation.
+        for enrichment in conn.execute(
+            "SELECT * FROM opportunity_enrichments "
+            f"WHERE canonical_opportunity_id IN ({placeholders})",
+            chunk,
+        ):
+            canonical_id = int(enrichment["canonical_opportunity_id"])
+            edits = overrides.get(canonical_id, ())
+            # Hash actual stored values, never a producer's digest/timestamp.
+            key = _enrichment_preparation_key(enrichment, edits) if preparation_cache is not None else None
+            previous = preparation_cache.get(canonical_id) if preparation_cache is not None else None
+            result = (previous[1] if previous is not None and previous[0] == key
+                      else _resolve_effective_enrichment_rows(enrichment, edits))
+            results[canonical_id] = result
+            if preparation_cache is not None:
+                prepared[canonical_id] = (key, result)
     if preparation_cache is not None:
         preparation_cache.clear()
         # Retain at most one bounded inventory generation. Returned documents

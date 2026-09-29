@@ -1,5 +1,6 @@
 """Anonymous launch boundary and prepared-generation lifecycle, entirely offline."""
 from copy import deepcopy
+from contextlib import contextmanager
 from datetime import datetime, timedelta
 from email.message import Message
 from io import BytesIO
@@ -49,6 +50,40 @@ class PublicCatalogReaderTests(unittest.TestCase):
     def get(self, path, *, reader=None, cookie=''):
         return (reader or self.reader).handle('GET', path,
             (('Host', 'www.wahojobs.com'), ('Cookie', cookie)))
+
+    def test_public_startup_uses_inventory_through_real_profile_runtime_handoff(self):
+        from scripts.private_beta_app import prepare_runtime
+        from wahojobs.persistent_profiles_browser import PersistentProfileBrowserIntegration
+        from wahojobs.workos_authkit_staging import WorkOSAuthKitStagingRuntime
+
+        # Exercise both production forwarding layers. Direct reader tests and
+        # a mocked runtime miss a dropped return after costly private preparation.
+        matches = Mock()
+        matches.prepare_serving_inventory.return_value = self.jobs
+        profile = object.__new__(PersistentProfileBrowserIntegration)
+        profile._closed = False
+        profile._matches_integration = matches
+
+        @contextmanager
+        def metadata_connection():
+            yield self.db
+
+        connections = Mock()
+        connections.read_only_connection_provider.side_effect = metadata_connection
+        runtime = WorkOSAuthKitStagingRuntime(browser_integration=None,
+            bind_address=('127.0.0.1', 0), public_origin='https://beta.wahojobs.com',
+            database_path=None, ownership=None, connections=connections,
+            gateway=None, profile_integration=profile)
+        with patch('wahojobs.public_catalog_reader.datetime', wraps=datetime) as clock:
+            clock.now.return_value = NOW
+            reader = prepare_runtime(runtime, catalog_configuration={'indexable': True})
+            matches.prepare_serving_inventory.assert_called_once_with()
+            self.assertEqual(reader.generation['publication_sha256'], self.reader.generation['publication_sha256'])
+            self.assertEqual(self.get('/jobs', reader=reader).status, 200)
+            detail = self.get('/jobs/opportunity-9002', reader=reader)
+            self.assertEqual(detail.status, 200)
+            self.assertIn(b'Evaluate model responses', detail.body)
+            self.assertIn(b'USD 35', detail.body)
 
     def test_public_brand_is_shared_by_catalog_detail_empty_and_unavailable_states(self):
         from wahojobs import public_catalog_brand as brand
