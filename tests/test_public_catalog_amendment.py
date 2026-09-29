@@ -173,7 +173,7 @@ class PublicAmendmentTests(unittest.TestCase):
                     response=reader.handle('GET',path,(('Host','www.wahojobs.com'),))
                     self.assertEqual(response.status,200)
                     self.assertIn('$200–400 / hour',response.body.decode())
-        self.assertEqual(reader.generation['presentation_version'],3)
+        self.assertEqual(reader.generation['presentation_version'],4)
 
 
 class OneTimeRecoveryTests(unittest.TestCase):

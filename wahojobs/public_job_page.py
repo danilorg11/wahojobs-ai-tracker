@@ -925,10 +925,13 @@ def render_public_job_page(
     chips = render_chips(role_chips)
 
     apply_action = ""
-    if job["official_url"] and job["job_is_active"] and job["canonical_is_active"]:
+    public_links = job.get('_public_links') if public_reader else None
+    apply_url = public_links['apply'] if public_links else job['official_url']
+    apply_label = f'Apply on {company_name}' if public_links else 'Apply on company site'
+    if apply_url and job["job_is_active"] and job["canonical_is_active"]:
         apply_action = (
-            f"<a class='button button-primary' href='{e(job['official_url'])}' "
-            "target='_blank' rel='noopener noreferrer nofollow'>Apply on company site</a>"
+            f"<a class='button button-primary' href='{e(apply_url)}' "
+            f"target='_blank' rel='noopener noreferrer nofollow'>{e(apply_label)}</a>"
         )
 
     workflow = render_workflow_panel(
@@ -997,13 +1000,16 @@ def render_public_job_page(
     if public_reader:
         caveats = []
 
-    source_url = job["official_url"]
+    source_url = public_links['source'] if public_links else job['official_url']
+    source_label = f'View original listing on {company_name}' if public_links else f'{company_name} original listing'
     source_link = (
         f"<a href='{e(source_url)}' target='_blank' rel='noopener noreferrer nofollow'>"
-        f"{e(company_name)} original listing</a>"
+        f"{e(source_label)}</a>"
         if source_url
-        else e(company_name)
+        else e(company_name + (' application/registration page (via Apply)' if public_links else ''))
     )
+    if public_links and public_links['registration']:
+        source_link += '<span> · Registration required; continuation to the selected project after signup is unverified.</span>'
     verified_at = first_timestamp(
         job["latest_successful_source_run_at"],
         job["job_last_seen_at"],

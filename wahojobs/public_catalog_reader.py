@@ -170,6 +170,8 @@ def prepare_publication(jobs):
             job['_public_activity'] = activity
             job['_public_kind'] = ' · '.join(filter(None, (activity, kind)))
             job['catalog_summary'] = quote
+            from wahojobs.catalog_source_links import prepare_source_links
+            job['_public_links'] = prepare_source_links(job)
             from wahojobs.catalog_source_geography import prepare_public_geography
             job['_public_geography'] = prepare_public_geography(job, text)
             catalog.prepare_catalog_location(job, job['_public_geography'])

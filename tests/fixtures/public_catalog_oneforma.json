@@ -1,0 +1,1056 @@
+[
+  {
+    "job_id": 7031,
+    "canonical_opportunity_id": 1530,
+    "company_name": "OneForma",
+    "company_slug": "oneforma",
+    "source_title": "E-Commerce Search Relevance Annotator - French - Belgium",
+    "source_location": "Belgium; Canada; Colombia; Mexico; Morocco; Sweden; Tunisia; United States",
+    "source_commitment": "Fixed Rate Per Hour",
+    "external_id": "oneforma::2699::14352",
+    "rich_provider": "oneforma",
+    "rich_source_type": "oneforma-wordpress-marketplace",
+    "rich_source_url": "https://my.oneforma.com/crowd/jobs/14352?from=list&tab=all",
+    "rich_external_id": "oneforma::2699::14352",
+    "listing_url": "https://my.oneforma.com/crowd/jobs/14352?from=list&tab=all",
+    "official_url": "https://my.oneforma.com/crowd/jobs/14352?from=list&tab=all",
+    "rich_body": "<p class=\"wp-block-paragraph\">A shopper types a few words into a search box and expects the right product back. Judging whether what came back actually answers them takes someone who reads the query the way a local shopper would, in their own language and their own market.</p>\n\n\n\n<h2 class=\"wp-block-heading\">About this project</h2>\n\n\n\n<p class=\"wp-block-paragraph\">Project Eris is an e-commerce search relevance annotation project, open to experts in French, Spanish and Swedish across eight countries.</p>\n\n\n\n<p class=\"wp-block-paragraph\">You review a search query alongside the product returned for it, then judge how well that product answers what the shopper was looking for. Your judgments teach these systems to tell a close match from a near miss, in markets where the difference is obvious to a local and invisible to everyone else.</p>\n\n\n\n<h2 class=\"wp-block-heading\">What you will do</h2>\n\n\n\n<p class=\"wp-block-paragraph\">The work involves:</p>\n\n\n\n<ul class=\"wp-block-list\">\n<li>Assess the relevance between a given search query and an e-commerce product.</li>\n\n\n\n<li>Review product information, including product titles, images, and live product detail pages.</li>\n\n\n\n<li>Use provided reference links to contextualize and support annotation decisions.</li>\n\n\n\n<li>Apply established annotation guidelines consistently across different products and search queries.</li>\n\n\n\n<li>Identify whether a product appropriately matches the shopper&#8217;s search intent.</li>\n\n\n\n<li>Follow project specifications, quality standards, and productivity requirements.</li>\n\n\n\n<li>Complete tasks within the expected Average Handling Time (AHT).</li>\n\n\n\n<li>Maintain a high level of accuracy and minimize tasks requiring modification or rework.</li>\n</ul>\n\n\n\n<h2 class=\"wp-block-heading\">Project details</h2>\n\n\n\n<ul class=\"wp-block-list\">\n<li><strong>Project type:</strong> E-commerce search relevance annotation</li>\n\n\n\n<li><strong>Languages:</strong> French, Spanish, Swedish</li>\n\n\n\n<li><strong>Countries:</strong> Belgium, Canada, Colombia, Mexico, Morocco, Sweden, Tunisia, United States</li>\n\n\n\n<li><strong>Location:</strong> Remote, on your own schedule</li>\n\n\n\n<li><strong>Minimum commitment:</strong> 3 hours of production work per day</li>\n</ul>\n\n\n\n<h2 class=\"wp-block-heading\">How to apply</h2>\n\n\n\n<p class=\"wp-block-paragraph\">Select the country and language that match you from the list below, then apply through OneForma. Each application goes to the project team for that market.</p>",
+    "rich_body_format": "text/html",
+    "rich_metadata_json": "{\"excerpt_html\":\"<p>Review search queries and e-commerce products and judge how well they match. Remote annotation project, available in French, Spanish and Swedish.</p>\\n\",\"job_tags\":[\"Belgium\",\"Canada\",\"Colombia\",\"Fixed Rate Per Hour\",\"Mexico\",\"Morocco\",\"Sweden\",\"Tunisia\",\"United States\"],\"job_types\":[\"Annotation\"],\"public_url\":\"https://www.oneforma.com/projects/e-commerce-search-relevance-annotator/\",\"variant_apply_url\":\"https://my.oneforma.com/crowd/jobs/14352?from=list&tab=all\",\"variant_language\":\"French - Belgium\"}",
+    "last_captured_at": "2026-09-28T16:05:47+00:00",
+    "source_updated_at": "2026-09-18T20:09:35",
+    "enrichment": {
+      "schema_version": "opportunity_enrichment_v5",
+      "taxonomy_version": "opportunity_taxonomy_v2_2026_08",
+      "source": {
+        "company_name": null,
+        "company_slug": null,
+        "canonical_key": null,
+        "canonical_title": null,
+        "source_category": null,
+        "source_tier": null,
+        "inventory_model": null,
+        "market_count_policy": null,
+        "opportunity_kinds": [],
+        "availability_bases": [],
+        "include_in_live_market_estimate": null
+      },
+      "attributes": {
+        "role": {
+          "role_family": null,
+          "professional_domains": [],
+          "work_activities": [
+            "data_annotation"
+          ],
+          "specializations": [],
+          "seniority": "unknown"
+        },
+        "work_arrangement": {
+          "workplace_mode": "unknown",
+          "location_scope": "unknown",
+          "eligible_countries": [
+            "Belgium",
+            "Canada",
+            "Colombia",
+            "Mexico",
+            "Morocco",
+            "Sweden",
+            "Tunisia",
+            "United States"
+          ],
+          "eligible_regions": [],
+          "eligible_locations": [
+            "Belgium; Canada; Colombia; Mexico; Morocco; Sweden; Tunisia; United States"
+          ],
+          "engagement_type": "unknown",
+          "schedule_type": "unknown",
+          "hours_per_week_min": null,
+          "hours_per_week_max": null,
+          "duration": null
+        },
+        "requirements": {
+          "languages": [
+            {
+              "language": "french",
+              "locale": null,
+              "requirement_mode": "single"
+            }
+          ],
+          "skills_required": [],
+          "skills_preferred": [],
+          "education": {
+            "minimum_level": "unknown",
+            "accepted_alternatives": [],
+            "preferred_levels": []
+          },
+          "credentials": [],
+          "credentials_preferred": [],
+          "licenses": [],
+          "licenses_preferred": [],
+          "experience_required": [],
+          "experience_preferred": [],
+          "current_status_requirements": [],
+          "years_experience_min": null,
+          "years_experience_preferred_min": null
+        },
+        "compensation": {
+          "disclosed": null,
+          "currency": null,
+          "amount_min": null,
+          "amount_max": null,
+          "period": "unknown",
+          "amount_type": "unknown",
+          "notes": null
+        },
+        "application": {
+          "application_url": null,
+          "deadline": null,
+          "assessment_required": null,
+          "portfolio_or_sample_required": null,
+          "login_required": null
+        },
+        "content": {
+          "quick_take": null,
+          "responsibilities": [],
+          "candidate_profile": null,
+          "benefits": [],
+          "caveats": []
+        }
+      },
+      "field_evidence": [],
+      "variant_facts": [
+        {
+          "evidence": [],
+          "field_path": "attributes.requirements.languages",
+          "knowledge_state": "known_value",
+          "value": {
+            "language": "french",
+            "locale": null,
+            "requirement_mode": "single"
+          },
+          "variant_refs": [
+            "source_hash:1ad2ea1da0b95874aece8a4e9f8f09447b65a61a4a7781e4cad5bb24d745456d",
+            "source_hash:5545fa5d9fe3fc7087672f965195befae41568dbef4edbf9b0b48ffea6481be7",
+            "source_hash:c33d104027c038425bae9300defa1225695a50ef4762d622baf89eeea9d3d6a0",
+            "source_hash:ff714b8805f6852c61f887df824558650d791abce2be4c15f7f0449a5b235e29"
+          ]
+        },
+        {
+          "evidence": [],
+          "field_path": "attributes.role.work_activities",
+          "knowledge_state": "known_value",
+          "value": "data_annotation",
+          "variant_refs": [
+            "source_hash:1ad2ea1da0b95874aece8a4e9f8f09447b65a61a4a7781e4cad5bb24d745456d",
+            "source_hash:1ec5b8a225a48583c88b14cc8a5ea4239ee43a6c7dc23c9c2f1fe313d49ad0f4",
+            "source_hash:2b0eeaa312ae4c8eb464ee88ab7bc11febf525ca4de3980850001abdd9a93d01",
+            "source_hash:5545fa5d9fe3fc7087672f965195befae41568dbef4edbf9b0b48ffea6481be7",
+            "source_hash:c33d104027c038425bae9300defa1225695a50ef4762d622baf89eeea9d3d6a0",
+            "source_hash:d0f9d974b99f0d45557f2dc416bda732b16e1ec09d9d992579d7b7445edfb2ac",
+            "source_hash:dbb4320c69496a61ff652e81e194bb1b32ebc5e637657eb4b83baad7352d9a6b",
+            "source_hash:ff714b8805f6852c61f887df824558650d791abce2be4c15f7f0449a5b235e29"
+          ]
+        },
+        {
+          "evidence": [],
+          "field_path": "attributes.work_arrangement.eligible_countries",
+          "knowledge_state": "known_value",
+          "value": "Belgium",
+          "variant_refs": [
+            "source_hash:1ad2ea1da0b95874aece8a4e9f8f09447b65a61a4a7781e4cad5bb24d745456d",
+            "source_hash:1ec5b8a225a48583c88b14cc8a5ea4239ee43a6c7dc23c9c2f1fe313d49ad0f4",
+            "source_hash:2b0eeaa312ae4c8eb464ee88ab7bc11febf525ca4de3980850001abdd9a93d01",
+            "source_hash:5545fa5d9fe3fc7087672f965195befae41568dbef4edbf9b0b48ffea6481be7",
+            "source_hash:c33d104027c038425bae9300defa1225695a50ef4762d622baf89eeea9d3d6a0",
+            "source_hash:d0f9d974b99f0d45557f2dc416bda732b16e1ec09d9d992579d7b7445edfb2ac",
+            "source_hash:dbb4320c69496a61ff652e81e194bb1b32ebc5e637657eb4b83baad7352d9a6b",
+            "source_hash:ff714b8805f6852c61f887df824558650d791abce2be4c15f7f0449a5b235e29"
+          ]
+        },
+        {
+          "evidence": [],
+          "field_path": "attributes.work_arrangement.eligible_countries",
+          "knowledge_state": "known_value",
+          "value": "Canada",
+          "variant_refs": [
+            "source_hash:1ad2ea1da0b95874aece8a4e9f8f09447b65a61a4a7781e4cad5bb24d745456d",
+            "source_hash:1ec5b8a225a48583c88b14cc8a5ea4239ee43a6c7dc23c9c2f1fe313d49ad0f4",
+            "source_hash:2b0eeaa312ae4c8eb464ee88ab7bc11febf525ca4de3980850001abdd9a93d01",
+            "source_hash:5545fa5d9fe3fc7087672f965195befae41568dbef4edbf9b0b48ffea6481be7",
+            "source_hash:c33d104027c038425bae9300defa1225695a50ef4762d622baf89eeea9d3d6a0",
+            "source_hash:d0f9d974b99f0d45557f2dc416bda732b16e1ec09d9d992579d7b7445edfb2ac",
+            "source_hash:dbb4320c69496a61ff652e81e194bb1b32ebc5e637657eb4b83baad7352d9a6b",
+            "source_hash:ff714b8805f6852c61f887df824558650d791abce2be4c15f7f0449a5b235e29"
+          ]
+        },
+        {
+          "evidence": [],
+          "field_path": "attributes.work_arrangement.eligible_countries",
+          "knowledge_state": "known_value",
+          "value": "Colombia",
+          "variant_refs": [
+            "source_hash:1ad2ea1da0b95874aece8a4e9f8f09447b65a61a4a7781e4cad5bb24d745456d",
+            "source_hash:1ec5b8a225a48583c88b14cc8a5ea4239ee43a6c7dc23c9c2f1fe313d49ad0f4",
+            "source_hash:2b0eeaa312ae4c8eb464ee88ab7bc11febf525ca4de3980850001abdd9a93d01",
+            "source_hash:5545fa5d9fe3fc7087672f965195befae41568dbef4edbf9b0b48ffea6481be7",
+            "source_hash:c33d104027c038425bae9300defa1225695a50ef4762d622baf89eeea9d3d6a0",
+            "source_hash:d0f9d974b99f0d45557f2dc416bda732b16e1ec09d9d992579d7b7445edfb2ac",
+            "source_hash:dbb4320c69496a61ff652e81e194bb1b32ebc5e637657eb4b83baad7352d9a6b",
+            "source_hash:ff714b8805f6852c61f887df824558650d791abce2be4c15f7f0449a5b235e29"
+          ]
+        },
+        {
+          "evidence": [],
+          "field_path": "attributes.work_arrangement.eligible_countries",
+          "knowledge_state": "known_value",
+          "value": "Mexico",
+          "variant_refs": [
+            "source_hash:1ad2ea1da0b95874aece8a4e9f8f09447b65a61a4a7781e4cad5bb24d745456d",
+            "source_hash:1ec5b8a225a48583c88b14cc8a5ea4239ee43a6c7dc23c9c2f1fe313d49ad0f4",
+            "source_hash:2b0eeaa312ae4c8eb464ee88ab7bc11febf525ca4de3980850001abdd9a93d01",
+            "source_hash:5545fa5d9fe3fc7087672f965195befae41568dbef4edbf9b0b48ffea6481be7",
+            "source_hash:c33d104027c038425bae9300defa1225695a50ef4762d622baf89eeea9d3d6a0",
+            "source_hash:d0f9d974b99f0d45557f2dc416bda732b16e1ec09d9d992579d7b7445edfb2ac",
+            "source_hash:dbb4320c69496a61ff652e81e194bb1b32ebc5e637657eb4b83baad7352d9a6b",
+            "source_hash:ff714b8805f6852c61f887df824558650d791abce2be4c15f7f0449a5b235e29"
+          ]
+        },
+        {
+          "evidence": [],
+          "field_path": "attributes.work_arrangement.eligible_countries",
+          "knowledge_state": "known_value",
+          "value": "Morocco",
+          "variant_refs": [
+            "source_hash:1ad2ea1da0b95874aece8a4e9f8f09447b65a61a4a7781e4cad5bb24d745456d",
+            "source_hash:1ec5b8a225a48583c88b14cc8a5ea4239ee43a6c7dc23c9c2f1fe313d49ad0f4",
+            "source_hash:2b0eeaa312ae4c8eb464ee88ab7bc11febf525ca4de3980850001abdd9a93d01",
+            "source_hash:5545fa5d9fe3fc7087672f965195befae41568dbef4edbf9b0b48ffea6481be7",
+            "source_hash:c33d104027c038425bae9300defa1225695a50ef4762d622baf89eeea9d3d6a0",
+            "source_hash:d0f9d974b99f0d45557f2dc416bda732b16e1ec09d9d992579d7b7445edfb2ac",
+            "source_hash:dbb4320c69496a61ff652e81e194bb1b32ebc5e637657eb4b83baad7352d9a6b",
+            "source_hash:ff714b8805f6852c61f887df824558650d791abce2be4c15f7f0449a5b235e29"
+          ]
+        },
+        {
+          "evidence": [],
+          "field_path": "attributes.work_arrangement.eligible_countries",
+          "knowledge_state": "known_value",
+          "value": "Sweden",
+          "variant_refs": [
+            "source_hash:1ad2ea1da0b95874aece8a4e9f8f09447b65a61a4a7781e4cad5bb24d745456d",
+            "source_hash:1ec5b8a225a48583c88b14cc8a5ea4239ee43a6c7dc23c9c2f1fe313d49ad0f4",
+            "source_hash:2b0eeaa312ae4c8eb464ee88ab7bc11febf525ca4de3980850001abdd9a93d01",
+            "source_hash:5545fa5d9fe3fc7087672f965195befae41568dbef4edbf9b0b48ffea6481be7",
+            "source_hash:c33d104027c038425bae9300defa1225695a50ef4762d622baf89eeea9d3d6a0",
+            "source_hash:d0f9d974b99f0d45557f2dc416bda732b16e1ec09d9d992579d7b7445edfb2ac",
+            "source_hash:dbb4320c69496a61ff652e81e194bb1b32ebc5e637657eb4b83baad7352d9a6b",
+            "source_hash:ff714b8805f6852c61f887df824558650d791abce2be4c15f7f0449a5b235e29"
+          ]
+        },
+        {
+          "evidence": [],
+          "field_path": "attributes.work_arrangement.eligible_countries",
+          "knowledge_state": "known_value",
+          "value": "Tunisia",
+          "variant_refs": [
+            "source_hash:1ad2ea1da0b95874aece8a4e9f8f09447b65a61a4a7781e4cad5bb24d745456d",
+            "source_hash:1ec5b8a225a48583c88b14cc8a5ea4239ee43a6c7dc23c9c2f1fe313d49ad0f4",
+            "source_hash:2b0eeaa312ae4c8eb464ee88ab7bc11febf525ca4de3980850001abdd9a93d01",
+            "source_hash:5545fa5d9fe3fc7087672f965195befae41568dbef4edbf9b0b48ffea6481be7",
+            "source_hash:c33d104027c038425bae9300defa1225695a50ef4762d622baf89eeea9d3d6a0",
+            "source_hash:d0f9d974b99f0d45557f2dc416bda732b16e1ec09d9d992579d7b7445edfb2ac",
+            "source_hash:dbb4320c69496a61ff652e81e194bb1b32ebc5e637657eb4b83baad7352d9a6b",
+            "source_hash:ff714b8805f6852c61f887df824558650d791abce2be4c15f7f0449a5b235e29"
+          ]
+        },
+        {
+          "evidence": [],
+          "field_path": "attributes.work_arrangement.eligible_countries",
+          "knowledge_state": "known_value",
+          "value": "United States",
+          "variant_refs": [
+            "source_hash:1ad2ea1da0b95874aece8a4e9f8f09447b65a61a4a7781e4cad5bb24d745456d",
+            "source_hash:1ec5b8a225a48583c88b14cc8a5ea4239ee43a6c7dc23c9c2f1fe313d49ad0f4",
+            "source_hash:2b0eeaa312ae4c8eb464ee88ab7bc11febf525ca4de3980850001abdd9a93d01",
+            "source_hash:5545fa5d9fe3fc7087672f965195befae41568dbef4edbf9b0b48ffea6481be7",
+            "source_hash:c33d104027c038425bae9300defa1225695a50ef4762d622baf89eeea9d3d6a0",
+            "source_hash:d0f9d974b99f0d45557f2dc416bda732b16e1ec09d9d992579d7b7445edfb2ac",
+            "source_hash:dbb4320c69496a61ff652e81e194bb1b32ebc5e637657eb4b83baad7352d9a6b",
+            "source_hash:ff714b8805f6852c61f887df824558650d791abce2be4c15f7f0449a5b235e29"
+          ]
+        },
+        {
+          "evidence": [],
+          "field_path": "attributes.work_arrangement.eligible_locations",
+          "knowledge_state": "known_value",
+          "value": "Belgium; Canada; Colombia; Mexico; Morocco; Sweden; Tunisia; United States",
+          "variant_refs": [
+            "source_hash:1ad2ea1da0b95874aece8a4e9f8f09447b65a61a4a7781e4cad5bb24d745456d",
+            "source_hash:1ec5b8a225a48583c88b14cc8a5ea4239ee43a6c7dc23c9c2f1fe313d49ad0f4",
+            "source_hash:2b0eeaa312ae4c8eb464ee88ab7bc11febf525ca4de3980850001abdd9a93d01",
+            "source_hash:5545fa5d9fe3fc7087672f965195befae41568dbef4edbf9b0b48ffea6481be7",
+            "source_hash:c33d104027c038425bae9300defa1225695a50ef4762d622baf89eeea9d3d6a0",
+            "source_hash:d0f9d974b99f0d45557f2dc416bda732b16e1ec09d9d992579d7b7445edfb2ac",
+            "source_hash:dbb4320c69496a61ff652e81e194bb1b32ebc5e637657eb4b83baad7352d9a6b",
+            "source_hash:ff714b8805f6852c61f887df824558650d791abce2be4c15f7f0449a5b235e29"
+          ]
+        }
+      ],
+      "unknown_fields": []
+    },
+    "overridden_fields": [],
+    "latest_successful_source_run_at": "2026-09-28T16:05:47+00:00",
+    "job_last_seen_at": "2026-09-28T16:05:47+00:00",
+    "canonical_last_seen_at": "2026-09-28T16:05:47+00:00",
+    "source_department": "Annotation",
+    "source_expertise": "Annotation"
+  },
+  {
+    "job_id": 7039,
+    "canonical_opportunity_id": 1531,
+    "company_name": "OneForma",
+    "company_slug": "oneforma",
+    "source_title": "Bilingual Code-Switching Group Recording Participant - Vietnamese - United States",
+    "source_location": "France; Germany; Italy; Japan; Malaysia; Spain; Taiwan; USA",
+    "source_commitment": "Fixed Rate Upon Completion",
+    "external_id": "oneforma::2687::vietnamese-united-states",
+    "rich_provider": "oneforma",
+    "rich_source_type": "oneforma-wordpress-marketplace",
+    "rich_source_url": "https://my.oneforma.com/webapp/nv/signup?requestId=1827625416331265",
+    "rich_external_id": "oneforma::2687::vietnamese-united-states",
+    "listing_url": "https://my.oneforma.com/webapp/nv/signup?requestId=1827625416331265",
+    "official_url": "https://my.oneforma.com/webapp/nv/signup?requestId=1827625416331265",
+    "rich_body": "<h2>Description:</h2>\n<p>Most bilingual people do not speak one language at a time. Mid-sentence an English word simply lands better than the alternative, so that is the word you reach for. Speech technology still handles that badly, because almost no recorded data captures it. Only people who genuinely live between two languages can supply it.</p>\n<p>You will join an online call with 1-2 other participants and record a natural conversation in your native language, mixing in English words and phrases the way you normally would. This is known as code-switching. Roughly one out of every three sentences should include English, reflecting real-world bilingual communication. Conversation topics can range from news events and personal interests to fictitious stories, keeping the dialogue authentic and engaging.</p>\n<p>Each session involves a minimum of four recordings, ensuring ample data for model training. You will need a stable internet connection, a quiet environment, and a device with a working microphone. Sessions are conducted remotely, offering flexibility to contribute from anywhere.</p>\n<p>This project suits native speakers who are also proficient in English and comfortable conversing naturally in both languages. Your participation directly supports speech technology that serves multilingual communities more accurately.</p>\n<h2>Purpose:</h2>\n<p>This project helps speech technology understand and process code-switching, a common pattern in multilingual communities. By providing authentic examples of mixed-language conversation, you enable speech recognition and natural language understanding models to serve the communities you are part of far better. The result is more inclusive, accurate, and context-aware language technology across global markets.</p>\n<h2>Main Requirements:</h2>\n<ul>\n<li>Adults 18+ who speak both English and their native language fluently and switch between them naturally in everyday conversation.</li>\n<li>Must record with another adult participant.</li>\n</ul>\n<h2>Preferred Qualifications:</h2>\n<ul>\n<li>Diverse age range welcome; conversations are more representative when speakers of different ages take part.</li>\n</ul>\n<h2>Compensation:</h2>\n<p>One-off paid session per recorded conversation, paid on completion and quality acceptance. The session rate covers a full session of 3.5 hours. A shorter session is prorated against that, so you are paid for the time you take part.</p>\n<h2>Details:</h2>\n<ul>\n<li><strong>Work Mode:</strong> remote</li>\n<li><strong>Location:</strong> Fully remote, recorded from the participants&#8217; own location, in the country selected during application.</li>\n<li><strong>Time Commitment:</strong> One-off paid session per recorded conversation, paid on completion and quality acceptance.</li>\n<li><strong>Language:</strong> Fluent in English and in the participant&#8217;s native language, with genuine everyday code-switching between the two.</li>\n</ul>",
+    "rich_body_format": "text/html",
+    "rich_metadata_json": "{\"excerpt_html\":\"<p>Record natural bilingual conversation in a paid group recording, switching between your native language and English. Remote, per-session. Apply on OneForma.</p>\\n\",\"job_tags\":[\"Fixed Rate Upon Completion\",\"France\",\"Germany\",\"Italy\",\"Japan\",\"Malaysia\",\"Spain\",\"Taiwan\",\"USA\"],\"job_types\":[\"Data Collection\"],\"public_url\":\"https://www.oneforma.com/projects/project-juniper-paid-audio-video-recording-study-5/\",\"variant_apply_url\":\"https://my.oneforma.com/webapp/nv/signup?requestId=1827625416331265\",\"variant_language\":\"Vietnamese - United States\"}",
+    "last_captured_at": "2026-09-28T16:05:47+00:00",
+    "source_updated_at": "2026-09-23T16:28:36",
+    "enrichment": {
+      "schema_version": "opportunity_enrichment_v5",
+      "taxonomy_version": "opportunity_taxonomy_v2_2026_08",
+      "source": {
+        "company_name": null,
+        "company_slug": null,
+        "canonical_key": null,
+        "canonical_title": null,
+        "source_category": null,
+        "source_tier": null,
+        "inventory_model": null,
+        "market_count_policy": null,
+        "opportunity_kinds": [],
+        "availability_bases": [],
+        "include_in_live_market_estimate": null
+      },
+      "attributes": {
+        "role": {
+          "role_family": null,
+          "professional_domains": [],
+          "work_activities": [],
+          "specializations": [],
+          "seniority": "unknown"
+        },
+        "work_arrangement": {
+          "workplace_mode": "unknown",
+          "location_scope": "unknown",
+          "eligible_countries": [
+            "France",
+            "Germany",
+            "Italy",
+            "Japan",
+            "Malaysia",
+            "Spain",
+            "Taiwan",
+            "United States"
+          ],
+          "eligible_regions": [],
+          "eligible_locations": [
+            "France; Germany; Italy; Japan; Malaysia; Spain; Taiwan; USA"
+          ],
+          "engagement_type": "unknown",
+          "schedule_type": "unknown",
+          "hours_per_week_min": null,
+          "hours_per_week_max": null,
+          "duration": null
+        },
+        "requirements": {
+          "languages": [
+            {
+              "language": "vietnamese",
+              "locale": null,
+              "requirement_mode": "single"
+            }
+          ],
+          "skills_required": [],
+          "skills_preferred": [],
+          "education": {
+            "minimum_level": "unknown",
+            "accepted_alternatives": [],
+            "preferred_levels": []
+          },
+          "credentials": [],
+          "credentials_preferred": [],
+          "licenses": [],
+          "licenses_preferred": [],
+          "experience_required": [],
+          "experience_preferred": [],
+          "current_status_requirements": [],
+          "years_experience_min": null,
+          "years_experience_preferred_min": null
+        },
+        "compensation": {
+          "disclosed": null,
+          "currency": null,
+          "amount_min": null,
+          "amount_max": null,
+          "period": "unknown",
+          "amount_type": "unknown",
+          "notes": null
+        },
+        "application": {
+          "application_url": null,
+          "deadline": null,
+          "assessment_required": null,
+          "portfolio_or_sample_required": null,
+          "login_required": null
+        },
+        "content": {
+          "quick_take": null,
+          "responsibilities": [],
+          "candidate_profile": null,
+          "benefits": [],
+          "caveats": []
+        }
+      },
+      "field_evidence": [],
+      "variant_facts": [
+        {
+          "evidence": [],
+          "field_path": "attributes.requirements.languages",
+          "knowledge_state": "known_value",
+          "value": {
+            "language": "vietnamese",
+            "locale": null,
+            "requirement_mode": "single"
+          },
+          "variant_refs": [
+            "source_hash:fb77257027c082fbac07cb5094e4427ef15b45d663fd8d67c7249df3ea8ba6f7"
+          ]
+        },
+        {
+          "evidence": [],
+          "field_path": "attributes.work_arrangement.eligible_countries",
+          "knowledge_state": "known_value",
+          "value": "France",
+          "variant_refs": [
+            "source_hash:23bd0a7089e18a90ed4acb0c2cf85a34de3b4efed0015cfbe6c64a5501e9212f",
+            "source_hash:49f7d177df9924004eebc147c611584265c37bb7f7e670f45d22481d8d9bb041",
+            "source_hash:74c76f19e4875c7eece1453dbdc895e5cc8fe697a50e2b26c1ef80d80f5efecc",
+            "source_hash:c2ae2739442c60a22283c750cea72ebec45d2942e022e513621a2b51cbac697d",
+            "source_hash:d1b4beb8f05596b53a8e49e82e03d65ded25b118ec4ada315b7f5a76a87f2334",
+            "source_hash:eebb39313eb233f5490b3ee28e06be401cacc3d0e9b842566fee67d61fadb494",
+            "source_hash:f253bf53dbd813b30d089091f3d1bf28304d3fa99f67a196d0ef1e2af98e9dfa",
+            "source_hash:fb77257027c082fbac07cb5094e4427ef15b45d663fd8d67c7249df3ea8ba6f7"
+          ]
+        },
+        {
+          "evidence": [],
+          "field_path": "attributes.work_arrangement.eligible_countries",
+          "knowledge_state": "known_value",
+          "value": "Germany",
+          "variant_refs": [
+            "source_hash:23bd0a7089e18a90ed4acb0c2cf85a34de3b4efed0015cfbe6c64a5501e9212f",
+            "source_hash:49f7d177df9924004eebc147c611584265c37bb7f7e670f45d22481d8d9bb041",
+            "source_hash:74c76f19e4875c7eece1453dbdc895e5cc8fe697a50e2b26c1ef80d80f5efecc",
+            "source_hash:c2ae2739442c60a22283c750cea72ebec45d2942e022e513621a2b51cbac697d",
+            "source_hash:d1b4beb8f05596b53a8e49e82e03d65ded25b118ec4ada315b7f5a76a87f2334",
+            "source_hash:eebb39313eb233f5490b3ee28e06be401cacc3d0e9b842566fee67d61fadb494",
+            "source_hash:f253bf53dbd813b30d089091f3d1bf28304d3fa99f67a196d0ef1e2af98e9dfa",
+            "source_hash:fb77257027c082fbac07cb5094e4427ef15b45d663fd8d67c7249df3ea8ba6f7"
+          ]
+        },
+        {
+          "evidence": [],
+          "field_path": "attributes.work_arrangement.eligible_countries",
+          "knowledge_state": "known_value",
+          "value": "Italy",
+          "variant_refs": [
+            "source_hash:23bd0a7089e18a90ed4acb0c2cf85a34de3b4efed0015cfbe6c64a5501e9212f",
+            "source_hash:49f7d177df9924004eebc147c611584265c37bb7f7e670f45d22481d8d9bb041",
+            "source_hash:74c76f19e4875c7eece1453dbdc895e5cc8fe697a50e2b26c1ef80d80f5efecc",
+            "source_hash:c2ae2739442c60a22283c750cea72ebec45d2942e022e513621a2b51cbac697d",
+            "source_hash:d1b4beb8f05596b53a8e49e82e03d65ded25b118ec4ada315b7f5a76a87f2334",
+            "source_hash:eebb39313eb233f5490b3ee28e06be401cacc3d0e9b842566fee67d61fadb494",
+            "source_hash:f253bf53dbd813b30d089091f3d1bf28304d3fa99f67a196d0ef1e2af98e9dfa",
+            "source_hash:fb77257027c082fbac07cb5094e4427ef15b45d663fd8d67c7249df3ea8ba6f7"
+          ]
+        },
+        {
+          "evidence": [],
+          "field_path": "attributes.work_arrangement.eligible_countries",
+          "knowledge_state": "known_value",
+          "value": "Japan",
+          "variant_refs": [
+            "source_hash:23bd0a7089e18a90ed4acb0c2cf85a34de3b4efed0015cfbe6c64a5501e9212f",
+            "source_hash:49f7d177df9924004eebc147c611584265c37bb7f7e670f45d22481d8d9bb041",
+            "source_hash:74c76f19e4875c7eece1453dbdc895e5cc8fe697a50e2b26c1ef80d80f5efecc",
+            "source_hash:c2ae2739442c60a22283c750cea72ebec45d2942e022e513621a2b51cbac697d",
+            "source_hash:d1b4beb8f05596b53a8e49e82e03d65ded25b118ec4ada315b7f5a76a87f2334",
+            "source_hash:eebb39313eb233f5490b3ee28e06be401cacc3d0e9b842566fee67d61fadb494",
+            "source_hash:f253bf53dbd813b30d089091f3d1bf28304d3fa99f67a196d0ef1e2af98e9dfa",
+            "source_hash:fb77257027c082fbac07cb5094e4427ef15b45d663fd8d67c7249df3ea8ba6f7"
+          ]
+        },
+        {
+          "evidence": [],
+          "field_path": "attributes.work_arrangement.eligible_countries",
+          "knowledge_state": "known_value",
+          "value": "Malaysia",
+          "variant_refs": [
+            "source_hash:23bd0a7089e18a90ed4acb0c2cf85a34de3b4efed0015cfbe6c64a5501e9212f",
+            "source_hash:49f7d177df9924004eebc147c611584265c37bb7f7e670f45d22481d8d9bb041",
+            "source_hash:74c76f19e4875c7eece1453dbdc895e5cc8fe697a50e2b26c1ef80d80f5efecc",
+            "source_hash:c2ae2739442c60a22283c750cea72ebec45d2942e022e513621a2b51cbac697d",
+            "source_hash:d1b4beb8f05596b53a8e49e82e03d65ded25b118ec4ada315b7f5a76a87f2334",
+            "source_hash:eebb39313eb233f5490b3ee28e06be401cacc3d0e9b842566fee67d61fadb494",
+            "source_hash:f253bf53dbd813b30d089091f3d1bf28304d3fa99f67a196d0ef1e2af98e9dfa",
+            "source_hash:fb77257027c082fbac07cb5094e4427ef15b45d663fd8d67c7249df3ea8ba6f7"
+          ]
+        },
+        {
+          "evidence": [],
+          "field_path": "attributes.work_arrangement.eligible_countries",
+          "knowledge_state": "known_value",
+          "value": "Spain",
+          "variant_refs": [
+            "source_hash:23bd0a7089e18a90ed4acb0c2cf85a34de3b4efed0015cfbe6c64a5501e9212f",
+            "source_hash:49f7d177df9924004eebc147c611584265c37bb7f7e670f45d22481d8d9bb041",
+            "source_hash:74c76f19e4875c7eece1453dbdc895e5cc8fe697a50e2b26c1ef80d80f5efecc",
+            "source_hash:c2ae2739442c60a22283c750cea72ebec45d2942e022e513621a2b51cbac697d",
+            "source_hash:d1b4beb8f05596b53a8e49e82e03d65ded25b118ec4ada315b7f5a76a87f2334",
+            "source_hash:eebb39313eb233f5490b3ee28e06be401cacc3d0e9b842566fee67d61fadb494",
+            "source_hash:f253bf53dbd813b30d089091f3d1bf28304d3fa99f67a196d0ef1e2af98e9dfa",
+            "source_hash:fb77257027c082fbac07cb5094e4427ef15b45d663fd8d67c7249df3ea8ba6f7"
+          ]
+        },
+        {
+          "evidence": [],
+          "field_path": "attributes.work_arrangement.eligible_countries",
+          "knowledge_state": "known_value",
+          "value": "Taiwan",
+          "variant_refs": [
+            "source_hash:23bd0a7089e18a90ed4acb0c2cf85a34de3b4efed0015cfbe6c64a5501e9212f",
+            "source_hash:49f7d177df9924004eebc147c611584265c37bb7f7e670f45d22481d8d9bb041",
+            "source_hash:74c76f19e4875c7eece1453dbdc895e5cc8fe697a50e2b26c1ef80d80f5efecc",
+            "source_hash:c2ae2739442c60a22283c750cea72ebec45d2942e022e513621a2b51cbac697d",
+            "source_hash:d1b4beb8f05596b53a8e49e82e03d65ded25b118ec4ada315b7f5a76a87f2334",
+            "source_hash:eebb39313eb233f5490b3ee28e06be401cacc3d0e9b842566fee67d61fadb494",
+            "source_hash:f253bf53dbd813b30d089091f3d1bf28304d3fa99f67a196d0ef1e2af98e9dfa",
+            "source_hash:fb77257027c082fbac07cb5094e4427ef15b45d663fd8d67c7249df3ea8ba6f7"
+          ]
+        },
+        {
+          "evidence": [],
+          "field_path": "attributes.work_arrangement.eligible_countries",
+          "knowledge_state": "known_value",
+          "value": "United States",
+          "variant_refs": [
+            "source_hash:23bd0a7089e18a90ed4acb0c2cf85a34de3b4efed0015cfbe6c64a5501e9212f",
+            "source_hash:49f7d177df9924004eebc147c611584265c37bb7f7e670f45d22481d8d9bb041",
+            "source_hash:74c76f19e4875c7eece1453dbdc895e5cc8fe697a50e2b26c1ef80d80f5efecc",
+            "source_hash:c2ae2739442c60a22283c750cea72ebec45d2942e022e513621a2b51cbac697d",
+            "source_hash:d1b4beb8f05596b53a8e49e82e03d65ded25b118ec4ada315b7f5a76a87f2334",
+            "source_hash:eebb39313eb233f5490b3ee28e06be401cacc3d0e9b842566fee67d61fadb494",
+            "source_hash:f253bf53dbd813b30d089091f3d1bf28304d3fa99f67a196d0ef1e2af98e9dfa",
+            "source_hash:fb77257027c082fbac07cb5094e4427ef15b45d663fd8d67c7249df3ea8ba6f7"
+          ]
+        },
+        {
+          "evidence": [],
+          "field_path": "attributes.work_arrangement.eligible_locations",
+          "knowledge_state": "known_value",
+          "value": "France; Germany; Italy; Japan; Malaysia; Spain; Taiwan; USA",
+          "variant_refs": [
+            "source_hash:23bd0a7089e18a90ed4acb0c2cf85a34de3b4efed0015cfbe6c64a5501e9212f",
+            "source_hash:49f7d177df9924004eebc147c611584265c37bb7f7e670f45d22481d8d9bb041",
+            "source_hash:74c76f19e4875c7eece1453dbdc895e5cc8fe697a50e2b26c1ef80d80f5efecc",
+            "source_hash:c2ae2739442c60a22283c750cea72ebec45d2942e022e513621a2b51cbac697d",
+            "source_hash:d1b4beb8f05596b53a8e49e82e03d65ded25b118ec4ada315b7f5a76a87f2334",
+            "source_hash:eebb39313eb233f5490b3ee28e06be401cacc3d0e9b842566fee67d61fadb494",
+            "source_hash:f253bf53dbd813b30d089091f3d1bf28304d3fa99f67a196d0ef1e2af98e9dfa",
+            "source_hash:fb77257027c082fbac07cb5094e4427ef15b45d663fd8d67c7249df3ea8ba6f7"
+          ]
+        }
+      ],
+      "unknown_fields": []
+    },
+    "overridden_fields": [],
+    "latest_successful_source_run_at": "2026-09-28T16:05:47+00:00",
+    "job_last_seen_at": "2026-09-28T16:05:47+00:00",
+    "canonical_last_seen_at": "2026-09-28T16:05:47+00:00",
+    "source_department": "Data Collection",
+    "source_expertise": "Data Collection"
+  },
+  {
+    "job_id": 7040,
+    "canonical_opportunity_id": 1531,
+    "company_name": "OneForma",
+    "company_slug": "oneforma",
+    "source_title": "Bilingual Code-Switching Group Recording Participant - Chinese - Malaysia",
+    "source_location": "France; Germany; Italy; Japan; Malaysia; Spain; Taiwan; USA",
+    "source_commitment": "Fixed Rate Upon Completion",
+    "external_id": "oneforma::2687::chinese-malaysia",
+    "rich_provider": "oneforma",
+    "rich_source_type": "oneforma-wordpress-marketplace",
+    "rich_source_url": "https://my.oneforma.com/webapp/nv/signup?requestId=1828041228064769",
+    "rich_external_id": "oneforma::2687::chinese-malaysia",
+    "listing_url": "https://my.oneforma.com/webapp/nv/signup?requestId=1828041228064769",
+    "official_url": "https://my.oneforma.com/webapp/nv/signup?requestId=1828041228064769",
+    "rich_body": "<h2>Description:</h2>\n<p>Most bilingual people do not speak one language at a time. Mid-sentence an English word simply lands better than the alternative, so that is the word you reach for. Speech technology still handles that badly, because almost no recorded data captures it. Only people who genuinely live between two languages can supply it.</p>\n<p>You will join an online call with 1-2 other participants and record a natural conversation in your native language, mixing in English words and phrases the way you normally would. This is known as code-switching. Roughly one out of every three sentences should include English, reflecting real-world bilingual communication. Conversation topics can range from news events and personal interests to fictitious stories, keeping the dialogue authentic and engaging.</p>\n<p>Each session involves a minimum of four recordings, ensuring ample data for model training. You will need a stable internet connection, a quiet environment, and a device with a working microphone. Sessions are conducted remotely, offering flexibility to contribute from anywhere.</p>\n<p>This project suits native speakers who are also proficient in English and comfortable conversing naturally in both languages. Your participation directly supports speech technology that serves multilingual communities more accurately.</p>\n<h2>Purpose:</h2>\n<p>This project helps speech technology understand and process code-switching, a common pattern in multilingual communities. By providing authentic examples of mixed-language conversation, you enable speech recognition and natural language understanding models to serve the communities you are part of far better. The result is more inclusive, accurate, and context-aware language technology across global markets.</p>\n<h2>Main Requirements:</h2>\n<ul>\n<li>Adults 18+ who speak both English and their native language fluently and switch between them naturally in everyday conversation.</li>\n<li>Must record with another adult participant.</li>\n</ul>\n<h2>Preferred Qualifications:</h2>\n<ul>\n<li>Diverse age range welcome; conversations are more representative when speakers of different ages take part.</li>\n</ul>\n<h2>Compensation:</h2>\n<p>One-off paid session per recorded conversation, paid on completion and quality acceptance. The session rate covers a full session of 3.5 hours. A shorter session is prorated against that, so you are paid for the time you take part.</p>\n<h2>Details:</h2>\n<ul>\n<li><strong>Work Mode:</strong> remote</li>\n<li><strong>Location:</strong> Fully remote, recorded from the participants&#8217; own location, in the country selected during application.</li>\n<li><strong>Time Commitment:</strong> One-off paid session per recorded conversation, paid on completion and quality acceptance.</li>\n<li><strong>Language:</strong> Fluent in English and in the participant&#8217;s native language, with genuine everyday code-switching between the two.</li>\n</ul>",
+    "rich_body_format": "text/html",
+    "rich_metadata_json": "{\"excerpt_html\":\"<p>Record natural bilingual conversation in a paid group recording, switching between your native language and English. Remote, per-session. Apply on OneForma.</p>\\n\",\"job_tags\":[\"Fixed Rate Upon Completion\",\"France\",\"Germany\",\"Italy\",\"Japan\",\"Malaysia\",\"Spain\",\"Taiwan\",\"USA\"],\"job_types\":[\"Data Collection\"],\"public_url\":\"https://www.oneforma.com/projects/project-juniper-paid-audio-video-recording-study-5/\",\"variant_apply_url\":\"https://my.oneforma.com/webapp/nv/signup?requestId=1828041228064769\",\"variant_language\":\"Chinese - Malaysia\"}",
+    "last_captured_at": "2026-09-28T16:05:47+00:00",
+    "source_updated_at": "2026-09-23T16:28:36",
+    "enrichment": {
+      "schema_version": "opportunity_enrichment_v5",
+      "taxonomy_version": "opportunity_taxonomy_v2_2026_08",
+      "source": {
+        "company_name": null,
+        "company_slug": null,
+        "canonical_key": null,
+        "canonical_title": null,
+        "source_category": null,
+        "source_tier": null,
+        "inventory_model": null,
+        "market_count_policy": null,
+        "opportunity_kinds": [],
+        "availability_bases": [],
+        "include_in_live_market_estimate": null
+      },
+      "attributes": {
+        "role": {
+          "role_family": null,
+          "professional_domains": [],
+          "work_activities": [],
+          "specializations": [],
+          "seniority": "unknown"
+        },
+        "work_arrangement": {
+          "workplace_mode": "unknown",
+          "location_scope": "unknown",
+          "eligible_countries": [
+            "France",
+            "Germany",
+            "Italy",
+            "Japan",
+            "Malaysia",
+            "Spain",
+            "Taiwan",
+            "United States"
+          ],
+          "eligible_regions": [],
+          "eligible_locations": [
+            "France; Germany; Italy; Japan; Malaysia; Spain; Taiwan; USA"
+          ],
+          "engagement_type": "unknown",
+          "schedule_type": "unknown",
+          "hours_per_week_min": null,
+          "hours_per_week_max": null,
+          "duration": null
+        },
+        "requirements": {
+          "languages": [
+            {
+              "language": "chinese",
+              "locale": null,
+              "requirement_mode": "single"
+            }
+          ],
+          "skills_required": [],
+          "skills_preferred": [],
+          "education": {
+            "minimum_level": "unknown",
+            "accepted_alternatives": [],
+            "preferred_levels": []
+          },
+          "credentials": [],
+          "credentials_preferred": [],
+          "licenses": [],
+          "licenses_preferred": [],
+          "experience_required": [],
+          "experience_preferred": [],
+          "current_status_requirements": [],
+          "years_experience_min": null,
+          "years_experience_preferred_min": null
+        },
+        "compensation": {
+          "disclosed": null,
+          "currency": null,
+          "amount_min": null,
+          "amount_max": null,
+          "period": "unknown",
+          "amount_type": "unknown",
+          "notes": null
+        },
+        "application": {
+          "application_url": null,
+          "deadline": null,
+          "assessment_required": null,
+          "portfolio_or_sample_required": null,
+          "login_required": null
+        },
+        "content": {
+          "quick_take": null,
+          "responsibilities": [],
+          "candidate_profile": null,
+          "benefits": [],
+          "caveats": []
+        }
+      },
+      "field_evidence": [],
+      "variant_facts": [
+        {
+          "evidence": [],
+          "field_path": "attributes.requirements.languages",
+          "knowledge_state": "known_value",
+          "value": {
+            "language": "chinese",
+            "locale": null,
+            "requirement_mode": "single"
+          },
+          "variant_refs": [
+            "source_hash:23bd0a7089e18a90ed4acb0c2cf85a34de3b4efed0015cfbe6c64a5501e9212f",
+            "source_hash:d1b4beb8f05596b53a8e49e82e03d65ded25b118ec4ada315b7f5a76a87f2334"
+          ]
+        },
+        {
+          "evidence": [],
+          "field_path": "attributes.work_arrangement.eligible_countries",
+          "knowledge_state": "known_value",
+          "value": "France",
+          "variant_refs": [
+            "source_hash:23bd0a7089e18a90ed4acb0c2cf85a34de3b4efed0015cfbe6c64a5501e9212f",
+            "source_hash:49f7d177df9924004eebc147c611584265c37bb7f7e670f45d22481d8d9bb041",
+            "source_hash:74c76f19e4875c7eece1453dbdc895e5cc8fe697a50e2b26c1ef80d80f5efecc",
+            "source_hash:c2ae2739442c60a22283c750cea72ebec45d2942e022e513621a2b51cbac697d",
+            "source_hash:d1b4beb8f05596b53a8e49e82e03d65ded25b118ec4ada315b7f5a76a87f2334",
+            "source_hash:eebb39313eb233f5490b3ee28e06be401cacc3d0e9b842566fee67d61fadb494",
+            "source_hash:f253bf53dbd813b30d089091f3d1bf28304d3fa99f67a196d0ef1e2af98e9dfa",
+            "source_hash:fb77257027c082fbac07cb5094e4427ef15b45d663fd8d67c7249df3ea8ba6f7"
+          ]
+        },
+        {
+          "evidence": [],
+          "field_path": "attributes.work_arrangement.eligible_countries",
+          "knowledge_state": "known_value",
+          "value": "Germany",
+          "variant_refs": [
+            "source_hash:23bd0a7089e18a90ed4acb0c2cf85a34de3b4efed0015cfbe6c64a5501e9212f",
+            "source_hash:49f7d177df9924004eebc147c611584265c37bb7f7e670f45d22481d8d9bb041",
+            "source_hash:74c76f19e4875c7eece1453dbdc895e5cc8fe697a50e2b26c1ef80d80f5efecc",
+            "source_hash:c2ae2739442c60a22283c750cea72ebec45d2942e022e513621a2b51cbac697d",
+            "source_hash:d1b4beb8f05596b53a8e49e82e03d65ded25b118ec4ada315b7f5a76a87f2334",
+            "source_hash:eebb39313eb233f5490b3ee28e06be401cacc3d0e9b842566fee67d61fadb494",
+            "source_hash:f253bf53dbd813b30d089091f3d1bf28304d3fa99f67a196d0ef1e2af98e9dfa",
+            "source_hash:fb77257027c082fbac07cb5094e4427ef15b45d663fd8d67c7249df3ea8ba6f7"
+          ]
+        },
+        {
+          "evidence": [],
+          "field_path": "attributes.work_arrangement.eligible_countries",
+          "knowledge_state": "known_value",
+          "value": "Italy",
+          "variant_refs": [
+            "source_hash:23bd0a7089e18a90ed4acb0c2cf85a34de3b4efed0015cfbe6c64a5501e9212f",
+            "source_hash:49f7d177df9924004eebc147c611584265c37bb7f7e670f45d22481d8d9bb041",
+            "source_hash:74c76f19e4875c7eece1453dbdc895e5cc8fe697a50e2b26c1ef80d80f5efecc",
+            "source_hash:c2ae2739442c60a22283c750cea72ebec45d2942e022e513621a2b51cbac697d",
+            "source_hash:d1b4beb8f05596b53a8e49e82e03d65ded25b118ec4ada315b7f5a76a87f2334",
+            "source_hash:eebb39313eb233f5490b3ee28e06be401cacc3d0e9b842566fee67d61fadb494",
+            "source_hash:f253bf53dbd813b30d089091f3d1bf28304d3fa99f67a196d0ef1e2af98e9dfa",
+            "source_hash:fb77257027c082fbac07cb5094e4427ef15b45d663fd8d67c7249df3ea8ba6f7"
+          ]
+        },
+        {
+          "evidence": [],
+          "field_path": "attributes.work_arrangement.eligible_countries",
+          "knowledge_state": "known_value",
+          "value": "Japan",
+          "variant_refs": [
+            "source_hash:23bd0a7089e18a90ed4acb0c2cf85a34de3b4efed0015cfbe6c64a5501e9212f",
+            "source_hash:49f7d177df9924004eebc147c611584265c37bb7f7e670f45d22481d8d9bb041",
+            "source_hash:74c76f19e4875c7eece1453dbdc895e5cc8fe697a50e2b26c1ef80d80f5efecc",
+            "source_hash:c2ae2739442c60a22283c750cea72ebec45d2942e022e513621a2b51cbac697d",
+            "source_hash:d1b4beb8f05596b53a8e49e82e03d65ded25b118ec4ada315b7f5a76a87f2334",
+            "source_hash:eebb39313eb233f5490b3ee28e06be401cacc3d0e9b842566fee67d61fadb494",
+            "source_hash:f253bf53dbd813b30d089091f3d1bf28304d3fa99f67a196d0ef1e2af98e9dfa",
+            "source_hash:fb77257027c082fbac07cb5094e4427ef15b45d663fd8d67c7249df3ea8ba6f7"
+          ]
+        },
+        {
+          "evidence": [],
+          "field_path": "attributes.work_arrangement.eligible_countries",
+          "knowledge_state": "known_value",
+          "value": "Malaysia",
+          "variant_refs": [
+            "source_hash:23bd0a7089e18a90ed4acb0c2cf85a34de3b4efed0015cfbe6c64a5501e9212f",
+            "source_hash:49f7d177df9924004eebc147c611584265c37bb7f7e670f45d22481d8d9bb041",
+            "source_hash:74c76f19e4875c7eece1453dbdc895e5cc8fe697a50e2b26c1ef80d80f5efecc",
+            "source_hash:c2ae2739442c60a22283c750cea72ebec45d2942e022e513621a2b51cbac697d",
+            "source_hash:d1b4beb8f05596b53a8e49e82e03d65ded25b118ec4ada315b7f5a76a87f2334",
+            "source_hash:eebb39313eb233f5490b3ee28e06be401cacc3d0e9b842566fee67d61fadb494",
+            "source_hash:f253bf53dbd813b30d089091f3d1bf28304d3fa99f67a196d0ef1e2af98e9dfa",
+            "source_hash:fb77257027c082fbac07cb5094e4427ef15b45d663fd8d67c7249df3ea8ba6f7"
+          ]
+        },
+        {
+          "evidence": [],
+          "field_path": "attributes.work_arrangement.eligible_countries",
+          "knowledge_state": "known_value",
+          "value": "Spain",
+          "variant_refs": [
+            "source_hash:23bd0a7089e18a90ed4acb0c2cf85a34de3b4efed0015cfbe6c64a5501e9212f",
+            "source_hash:49f7d177df9924004eebc147c611584265c37bb7f7e670f45d22481d8d9bb041",
+            "source_hash:74c76f19e4875c7eece1453dbdc895e5cc8fe697a50e2b26c1ef80d80f5efecc",
+            "source_hash:c2ae2739442c60a22283c750cea72ebec45d2942e022e513621a2b51cbac697d",
+            "source_hash:d1b4beb8f05596b53a8e49e82e03d65ded25b118ec4ada315b7f5a76a87f2334",
+            "source_hash:eebb39313eb233f5490b3ee28e06be401cacc3d0e9b842566fee67d61fadb494",
+            "source_hash:f253bf53dbd813b30d089091f3d1bf28304d3fa99f67a196d0ef1e2af98e9dfa",
+            "source_hash:fb77257027c082fbac07cb5094e4427ef15b45d663fd8d67c7249df3ea8ba6f7"
+          ]
+        },
+        {
+          "evidence": [],
+          "field_path": "attributes.work_arrangement.eligible_countries",
+          "knowledge_state": "known_value",
+          "value": "Taiwan",
+          "variant_refs": [
+            "source_hash:23bd0a7089e18a90ed4acb0c2cf85a34de3b4efed0015cfbe6c64a5501e9212f",
+            "source_hash:49f7d177df9924004eebc147c611584265c37bb7f7e670f45d22481d8d9bb041",
+            "source_hash:74c76f19e4875c7eece1453dbdc895e5cc8fe697a50e2b26c1ef80d80f5efecc",
+            "source_hash:c2ae2739442c60a22283c750cea72ebec45d2942e022e513621a2b51cbac697d",
+            "source_hash:d1b4beb8f05596b53a8e49e82e03d65ded25b118ec4ada315b7f5a76a87f2334",
+            "source_hash:eebb39313eb233f5490b3ee28e06be401cacc3d0e9b842566fee67d61fadb494",
+            "source_hash:f253bf53dbd813b30d089091f3d1bf28304d3fa99f67a196d0ef1e2af98e9dfa",
+            "source_hash:fb77257027c082fbac07cb5094e4427ef15b45d663fd8d67c7249df3ea8ba6f7"
+          ]
+        },
+        {
+          "evidence": [],
+          "field_path": "attributes.work_arrangement.eligible_countries",
+          "knowledge_state": "known_value",
+          "value": "United States",
+          "variant_refs": [
+            "source_hash:23bd0a7089e18a90ed4acb0c2cf85a34de3b4efed0015cfbe6c64a5501e9212f",
+            "source_hash:49f7d177df9924004eebc147c611584265c37bb7f7e670f45d22481d8d9bb041",
+            "source_hash:74c76f19e4875c7eece1453dbdc895e5cc8fe697a50e2b26c1ef80d80f5efecc",
+            "source_hash:c2ae2739442c60a22283c750cea72ebec45d2942e022e513621a2b51cbac697d",
+            "source_hash:d1b4beb8f05596b53a8e49e82e03d65ded25b118ec4ada315b7f5a76a87f2334",
+            "source_hash:eebb39313eb233f5490b3ee28e06be401cacc3d0e9b842566fee67d61fadb494",
+            "source_hash:f253bf53dbd813b30d089091f3d1bf28304d3fa99f67a196d0ef1e2af98e9dfa",
+            "source_hash:fb77257027c082fbac07cb5094e4427ef15b45d663fd8d67c7249df3ea8ba6f7"
+          ]
+        },
+        {
+          "evidence": [],
+          "field_path": "attributes.work_arrangement.eligible_locations",
+          "knowledge_state": "known_value",
+          "value": "France; Germany; Italy; Japan; Malaysia; Spain; Taiwan; USA",
+          "variant_refs": [
+            "source_hash:23bd0a7089e18a90ed4acb0c2cf85a34de3b4efed0015cfbe6c64a5501e9212f",
+            "source_hash:49f7d177df9924004eebc147c611584265c37bb7f7e670f45d22481d8d9bb041",
+            "source_hash:74c76f19e4875c7eece1453dbdc895e5cc8fe697a50e2b26c1ef80d80f5efecc",
+            "source_hash:c2ae2739442c60a22283c750cea72ebec45d2942e022e513621a2b51cbac697d",
+            "source_hash:d1b4beb8f05596b53a8e49e82e03d65ded25b118ec4ada315b7f5a76a87f2334",
+            "source_hash:eebb39313eb233f5490b3ee28e06be401cacc3d0e9b842566fee67d61fadb494",
+            "source_hash:f253bf53dbd813b30d089091f3d1bf28304d3fa99f67a196d0ef1e2af98e9dfa",
+            "source_hash:fb77257027c082fbac07cb5094e4427ef15b45d663fd8d67c7249df3ea8ba6f7"
+          ]
+        }
+      ],
+      "unknown_fields": []
+    },
+    "overridden_fields": [],
+    "latest_successful_source_run_at": "2026-09-28T16:05:47+00:00",
+    "job_last_seen_at": "2026-09-28T16:05:47+00:00",
+    "canonical_last_seen_at": "2026-09-28T16:05:47+00:00",
+    "source_department": "Data Collection",
+    "source_expertise": "Data Collection"
+  },
+  {
+    "job_id": 7087,
+    "canonical_opportunity_id": 1536,
+    "company_name": "OneForma",
+    "company_slug": "oneforma",
+    "source_title": "Bilingual Code-Switching Conversation Contributor - Arabic - United Arab Emirates",
+    "source_location": "Canada; GLF; MSA",
+    "source_commitment": null,
+    "external_id": "oneforma::2533::arabic-united-arab-emirates",
+    "rich_provider": "oneforma",
+    "rich_source_type": "oneforma-wordpress-marketplace",
+    "rich_source_url": "https://my.oneforma.com/webapp/nv/signup?requestId=1829541684373505",
+    "rich_external_id": "oneforma::2533::arabic-united-arab-emirates",
+    "listing_url": "https://my.oneforma.com/webapp/nv/signup?requestId=1829541684373505",
+    "official_url": "https://my.oneforma.com/webapp/nv/signup?requestId=1829541684373505",
+    "rich_body": "<h2>Description:</h2>\n<p>We are looking for bilingual individuals who naturally blend English and their native language in everyday conversation. In this project, you will record natural spoken dialogue with another adult participant, capturing the way you genuinely switch between languages during real-world discussions.</p>\n<p>This is a fully remote, one-off session that you complete from your own location. You will need a quiet environment and a device capable of making clear audio recordings. Each conversation is reviewed for quality and natural code-switching before payment is issued.</p>\n<h2>Purpose:</h2>\n<p>Natural code-switching data helps train AI systems to better understand and serve multilingual communities who mix languages in daily life. Your contributions directly improve speech recognition and natural language processing models, making voice assistants and translation tools more accurate and inclusive for real-world users.</p>\n<h2>Main Requirements:</h2>\n<ul>\n<li>Adults 18+ who speak both English and their native language fluently and switch between them naturally in everyday conversation.</li>\n<li>Must record with another adult participant.</li>\n</ul>\n<h2>Preferred Qualifications:</h2>\n<ul>\n<li>Diverse age range welcome; conversations are more representative when speakers of different ages take part.</li>\n</ul>\n<h2>Compensation:</h2>\n<p>One-off paid session per recorded conversation, paid on completion and quality acceptance. The session rate covers a full session of 3.5 hours. A shorter session is prorated against that, so you are paid for the time you take part.</p>\n<h2>Details:</h2>\n<ul>\n<li><strong>Work Mode:</strong> remote</li>\n<li><strong>Location:</strong> Fully remote, recorded from the participants&#8217; own location, in the country selected during application.</li>\n<li><strong>Time Commitment:</strong> One-off paid session per recorded conversation, paid on completion and quality acceptance.</li>\n<li><strong>Language:</strong> Fluent in English and in the participant&#8217;s native language, with genuine everyday code-switching between the two.</li>\n</ul>",
+    "rich_body_format": "text/html",
+    "rich_metadata_json": "{\"excerpt_html\":\"<p>Available in . Apply now on OneForma.</p>\\n\",\"job_tags\":[\"Canada\",\"GLF\",\"MSA\"],\"job_types\":[\"Data Collection\"],\"public_url\":\"https://www.oneforma.com/projects/bilingual-code-switching-conversation-contributor/\",\"variant_apply_url\":\"https://my.oneforma.com/webapp/nv/signup?requestId=1829541684373505\",\"variant_language\":\"Arabic - United Arab Emirates\"}",
+    "last_captured_at": "2026-09-28T16:05:47+00:00",
+    "source_updated_at": "2026-09-22T20:56:21",
+    "enrichment": {
+      "schema_version": "opportunity_enrichment_v5",
+      "taxonomy_version": "opportunity_taxonomy_v2_2026_08",
+      "source": {
+        "company_name": null,
+        "company_slug": null,
+        "canonical_key": null,
+        "canonical_title": null,
+        "source_category": null,
+        "source_tier": null,
+        "inventory_model": null,
+        "market_count_policy": null,
+        "opportunity_kinds": [],
+        "availability_bases": [],
+        "include_in_live_market_estimate": null
+      },
+      "attributes": {
+        "role": {
+          "role_family": null,
+          "professional_domains": [],
+          "work_activities": [],
+          "specializations": [],
+          "seniority": "unknown"
+        },
+        "work_arrangement": {
+          "workplace_mode": "unknown",
+          "location_scope": "unknown",
+          "eligible_countries": [
+            "Canada"
+          ],
+          "eligible_regions": [],
+          "eligible_locations": [
+            "Canada; GLF; MSA"
+          ],
+          "engagement_type": "unknown",
+          "schedule_type": "unknown",
+          "hours_per_week_min": null,
+          "hours_per_week_max": null,
+          "duration": null
+        },
+        "requirements": {
+          "languages": [
+            {
+              "language": "arabic",
+              "locale": null,
+              "requirement_mode": "single"
+            }
+          ],
+          "skills_required": [],
+          "skills_preferred": [],
+          "education": {
+            "minimum_level": "unknown",
+            "accepted_alternatives": [],
+            "preferred_levels": []
+          },
+          "credentials": [],
+          "credentials_preferred": [],
+          "licenses": [],
+          "licenses_preferred": [],
+          "experience_required": [],
+          "experience_preferred": [],
+          "current_status_requirements": [],
+          "years_experience_min": null,
+          "years_experience_preferred_min": null
+        },
+        "compensation": {
+          "disclosed": null,
+          "currency": null,
+          "amount_min": null,
+          "amount_max": null,
+          "period": "unknown",
+          "amount_type": "unknown",
+          "notes": null
+        },
+        "application": {
+          "application_url": null,
+          "deadline": null,
+          "assessment_required": null,
+          "portfolio_or_sample_required": null,
+          "login_required": null
+        },
+        "content": {
+          "quick_take": null,
+          "responsibilities": [],
+          "candidate_profile": null,
+          "benefits": [],
+          "caveats": []
+        }
+      },
+      "field_evidence": [],
+      "variant_facts": [
+        {
+          "evidence": [],
+          "field_path": "attributes.requirements.languages",
+          "knowledge_state": "known_value",
+          "value": {
+            "language": "arabic",
+            "locale": null,
+            "requirement_mode": "single"
+          },
+          "variant_refs": [
+            "source_hash:12a97ad234bf5fcab14b4622f3e04719188b19b160faffee4421375dcc9b3aa2",
+            "source_hash:516ddd83a05df2d394c8ea34c19512e0a872c5828fef978f155a7695f00c1e70",
+            "source_hash:bc65e4138341ab4cb83438b023799bea91444fc40a707461b662ff0bf7b8df9e",
+            "source_hash:d1a0b682ffb7b1635715c6a7fd89f6886c1871ab9aa12e4e26084295d9a22400",
+            "source_hash:ded89d16f95912d4fc2cef864a587adf237efcb9bf075ec8a7ae117e3c3055ab",
+            "source_hash:fa37e5a2f1acefbe49b444f1cd26a800d8511efb15b2c8b41305e58b3aa986db"
+          ]
+        },
+        {
+          "evidence": [],
+          "field_path": "attributes.work_arrangement.eligible_countries",
+          "knowledge_state": "known_value",
+          "value": "Canada",
+          "variant_refs": [
+            "source_hash:12a97ad234bf5fcab14b4622f3e04719188b19b160faffee4421375dcc9b3aa2",
+            "source_hash:516ddd83a05df2d394c8ea34c19512e0a872c5828fef978f155a7695f00c1e70",
+            "source_hash:58a83cec0a84df3e4b60f9a149a6144115c69e3d1cf0b9d37302ed0497bddb34",
+            "source_hash:5df93405dbf9df1dddde58775f3e868e4af3c57e2f8ec8492faa71a015443572",
+            "source_hash:7f586aa5f3685f549951c83436ffc175ace3184ee080a403a42f5304743e20b1",
+            "source_hash:86c28e1e4dcae8e7195e54efe3441435a1e9b7779d2bdebf190b252a386a7b00",
+            "source_hash:bc65e4138341ab4cb83438b023799bea91444fc40a707461b662ff0bf7b8df9e",
+            "source_hash:d1a0b682ffb7b1635715c6a7fd89f6886c1871ab9aa12e4e26084295d9a22400",
+            "source_hash:ded89d16f95912d4fc2cef864a587adf237efcb9bf075ec8a7ae117e3c3055ab",
+            "source_hash:f88a0f0ff0cc570c33f0bd96f5342986166a945d6ce25933ae2d61cecaf09e20",
+            "source_hash:fa37e5a2f1acefbe49b444f1cd26a800d8511efb15b2c8b41305e58b3aa986db"
+          ]
+        },
+        {
+          "evidence": [],
+          "field_path": "attributes.work_arrangement.eligible_locations",
+          "knowledge_state": "known_value",
+          "value": "Canada; GLF; MSA",
+          "variant_refs": [
+            "source_hash:12a97ad234bf5fcab14b4622f3e04719188b19b160faffee4421375dcc9b3aa2",
+            "source_hash:516ddd83a05df2d394c8ea34c19512e0a872c5828fef978f155a7695f00c1e70",
+            "source_hash:58a83cec0a84df3e4b60f9a149a6144115c69e3d1cf0b9d37302ed0497bddb34",
+            "source_hash:5df93405dbf9df1dddde58775f3e868e4af3c57e2f8ec8492faa71a015443572",
+            "source_hash:7f586aa5f3685f549951c83436ffc175ace3184ee080a403a42f5304743e20b1",
+            "source_hash:86c28e1e4dcae8e7195e54efe3441435a1e9b7779d2bdebf190b252a386a7b00",
+            "source_hash:bc65e4138341ab4cb83438b023799bea91444fc40a707461b662ff0bf7b8df9e",
+            "source_hash:d1a0b682ffb7b1635715c6a7fd89f6886c1871ab9aa12e4e26084295d9a22400",
+            "source_hash:ded89d16f95912d4fc2cef864a587adf237efcb9bf075ec8a7ae117e3c3055ab",
+            "source_hash:f88a0f0ff0cc570c33f0bd96f5342986166a945d6ce25933ae2d61cecaf09e20",
+            "source_hash:fa37e5a2f1acefbe49b444f1cd26a800d8511efb15b2c8b41305e58b3aa986db"
+          ]
+        }
+      ],
+      "unknown_fields": []
+    },
+    "overridden_fields": [],
+    "latest_successful_source_run_at": "2026-09-28T16:05:47+00:00",
+    "job_last_seen_at": "2026-09-28T16:05:47+00:00",
+    "canonical_last_seen_at": "2026-09-28T16:05:47+00:00",
+    "source_department": "Data Collection",
+    "source_expertise": "Data Collection"
+  }
+]

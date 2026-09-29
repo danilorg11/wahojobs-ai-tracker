@@ -40,6 +40,26 @@ def prepare_public_geography(job, text):
         if prefix + field in guarded:
             result[key] = tuple(arrangement.get(field) or ())
     metadata = bound_metadata(job)
+    from wahojobs.catalog_source_links import oneforma_work_facts
+    oneforma = oneforma_work_facts(job, text)
+    if oneforma.get('mode') and result['mode'] == 'unknown' and prefix + 'workplace_mode' not in guarded:
+        result['mode'] = oneforma['mode']
+    geography_fields = {prefix + field for field in
+        ('location_scope', 'eligible_countries', 'eligible_regions', 'eligible_locations')}
+    # Automatic bootstrap copied project tags into every variant. Replace only
+    # that exact unquoted fallback, never a manual or evidenced scoped decision.
+    from wahojobs.matching.locations import countries_in_location
+    project_countries = countries_in_location(job.get('source_location'))
+    protected_geography = bool(overrides & geography_fields) or any(
+        fact.get('field_path') in geography_fields and (fact.get('evidence') or
+            fact.get('knowledge_state') != 'known_value')
+        for fact in job['enrichment'].get('variant_facts', []))
+    if (oneforma.get('country') and not protected_geography and not result['regions']
+            and set(result['countries']) == set(project_countries)
+            and arrangement.get('location_scope') in (None, '', 'unknown')):
+        result.update(countries=(oneforma['country'],), regions=(), detail_countries=(),
+            scope='remote_restricted' if result['mode'] == 'remote' else 'onsite_or_hybrid_restricted',
+            applicant_geography_basis='retained_application_option', country_filter_dimension='location')
     lever = bool(metadata and urlsplit(job.get('listing_url') or '').hostname == 'jobs.lever.co')
     if (lever and result['mode'] == 'unknown' and prefix + 'workplace_mode' not in guarded
             and metadata.get('workplaceType') in ('remote', 'hybrid', 'on-site')):

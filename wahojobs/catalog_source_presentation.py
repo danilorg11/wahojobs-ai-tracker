@@ -9,7 +9,7 @@ import json
 import re
 from urllib.parse import urlsplit
 
-PRESENTATION_VERSION = 3
+PRESENTATION_VERSION = 4
 _VOID = {'area', 'base', 'br', 'col', 'embed', 'hr', 'img', 'input', 'link', 'meta', 'param', 'source', 'track', 'wbr'}
 _OMIT = {'script', 'style', 'nav', 'footer', 'form', 'button', 'input', 'select', 'textarea', 'svg', 'iframe'}
 
