@@ -26,7 +26,7 @@ a:focus-visible,button:focus-visible,input:focus-visible,select:focus-visible,su
 .public-brand-header .brand {display:inline-flex;flex-shrink:0;align-items:center;min-height:44px;}
 .public-brand-header .brand img {display:block;width:193px;height:40px;max-width:100%;object-fit:contain;}
 .public-brand-header nav {display:flex;flex-wrap:wrap;align-items:center;gap:8px 40px;}
-.public-brand-header nav a {display:inline-flex;align-items:center;min-height:44px;color:#fff;text-decoration:none;font-size:1rem;font-weight:700;}
+.public-brand-header nav a {display:inline-flex;align-items:center;min-height:44px;color:#fff;text-decoration:none;font-size:1.5rem;font-weight:400;}
 .public-brand-header nav a[aria-current] {text-decoration:underline;text-decoration-thickness:3px;text-underline-offset:8px;}
 .public-brand-header nav a:hover {text-decoration:underline;text-underline-offset:8px;}
 h1 {line-height:1.15;}
@@ -44,6 +44,6 @@ h1 {line-height:1.15;}
  .site-header.public-brand-header {min-height:0;padding:16px;gap:8px 20px;}
  .public-brand-header .brand img {width:154.4px;height:32px;}
  .public-brand-header nav {gap:8px 28px;}
- .public-brand-header nav a {font-size:.9rem;}
+ .public-brand-header nav a {font-size:1.125rem;}
 }
 """
