@@ -115,13 +115,16 @@ def prepare_public_geography(job, text):
             for f in job['enrichment'].get('variant_facts', [])
             if f.get('field_path') == prefix + 'location_scope'
             for e in f.get('evidence', [])]
-        if any(worldwide.search(q) for q in quotes):
+        global_role_location = (job.get('source_location') or '').strip().casefold() == 'global'
+        if global_role_location or any(worldwide.search(q) for q in quotes):
             result.update(summary='Worldwide', fact='Worldwide')
         else:
             result.update(scope='unknown', summary=None, fact=None)
     elif result.get('summary', '') and result['summary'].startswith(('Eligible in ', 'Eligible across ')):
         # A listing city alone can be an office, not an applicant restriction.
         result.update(summary=None, fact=None)
+    elif result.get('summary') == 'Work from anywhere':
+        result.update(summary=None, fact=None)  # scoped unknown suppressed the source fallback
     return result
 
 

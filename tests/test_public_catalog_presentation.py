@@ -96,6 +96,9 @@ class PublicPresentationTests(unittest.TestCase):
         self.assertEqual(location_summary(self.prepared()),'Remote')
         self.job['source_location']='World Wide - Remote'
         self.assertEqual(location_summary(self.prepared()),'Remote · Worldwide')
+        self.job['source_location']='Global'
+        self.assertEqual(location_summary(self.prepared()),'Remote · Worldwide')
+        self.job['source_location']='World Wide - Remote'
         self.job['rich_body']='Candidates must be located in Canada.'
         job=self.prepared()
         self.assertEqual(location_summary(job),'Remote · Canada')
