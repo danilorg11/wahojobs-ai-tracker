@@ -1051,6 +1051,8 @@ def render_public_job_page(
         </section>
         """
 
+    from wahojobs import public_catalog_brand as brand
+    legacy_header = "<header class='site-header'><a class='brand' href='/jobs'>Wahojobs</a>" + navigation + "</header>"
     page = f"""<!doctype html>
 <html lang='en'>
 <head>
@@ -1065,13 +1067,11 @@ def render_public_job_page(
   <meta property='og:description' content='{e(description)}'>
   <meta property='og:url' content='{e(canonical_url)}'>
   {jobposting_script}
-  <style>{PUBLIC_JOB_CSS}</style>
+  <style>{PUBLIC_JOB_CSS}{brand.CSS if public_reader else ''}</style>
+  {brand.FAVICON if public_reader else ''}
 </head>
 <body>
-  <header class='site-header'>
-    <a class='brand' href='/jobs'>Wahojobs</a>
-    {navigation}
-  </header>
+  {brand.HEADER if public_reader else legacy_header}
   <main>
     {back_to_jobs}
     <article>

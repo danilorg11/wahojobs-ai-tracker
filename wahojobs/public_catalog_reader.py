@@ -15,7 +15,7 @@ import threading
 from urllib.parse import parse_qs, urlsplit
 from xml.sax.saxutils import escape as xml_escape
 
-from wahojobs import public_job_page as detail, public_jobs_catalog as catalog
+from wahojobs import public_job_page as detail, public_jobs_catalog as catalog, public_catalog_brand as brand
 from wahojobs.authenticated_card_evidence import _source_text
 from wahojobs.catalog_source_presentation import (PRESENTATION_VERSION, dataforce_description,
                                                  contribution_context, surge_role_fields, bound_metadata)
@@ -279,7 +279,7 @@ class PublicCatalogReader:
             ('Cache-Control', 'no-store'), ('X-Robots-Tag', robots), (ROBOTS_HEADER, robots),
             ('X-Content-Type-Options', 'nosniff'), ('Referrer-Policy', 'strict-origin-when-cross-origin'),
             ('Content-Security-Policy', "default-src 'none'; style-src 'unsafe-inline'; "
-                "script-src 'unsafe-inline'; form-action 'self'; base-uri 'none'; frame-ancestors 'none'"))
+                + brand.ASSET_CSP + "script-src 'unsafe-inline'; form-action 'self'; base-uri 'none'; frame-ancestors 'none'"))
         if status == 503:
             headers += (('Retry-After', '60'),)
         return PublicCatalogResponse(status, body, headers)
@@ -288,7 +288,8 @@ class PublicCatalogReader:
         return self._response(status, '<!doctype html><html lang="en"><head><meta charset="utf-8">'
             '<meta name="viewport" content="width=device-width,initial-scale=1">'
             '<meta name="robots" content="noindex,follow"><title>' + escape(title) + ' | Wahojobs</title>'
-            '</head><body><main><h1>' + escape(title) + '</h1><p>' + escape(text) + '</p>'
+            + brand.FAVICON + '<style>' + detail.PUBLIC_JOB_CSS + brand.CSS + '</style>'
+            '</head><body>' + brand.HEADER + '<main class="public-message"><h1>' + escape(title) + '</h1><p>' + escape(text) + '</p>'
             '<a href="/jobs">Browse current opportunities</a></main></body></html>')
 
     def handle(self, method, target, headers=(), body_stream=None):

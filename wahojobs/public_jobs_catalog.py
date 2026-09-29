@@ -677,10 +677,12 @@ def render_public_jobs_page(
     pagination = render_pagination(catalog)
     page_suffix = f" — Page {catalog['page']}" if catalog["page"] > 1 else ""
     description_suffix = f" Page {catalog['page']}." if catalog["page"] > 1 else ""
+    from wahojobs import public_catalog_brand as brand
     heading = 'AI Training Jobs' if public_reader else 'Browse jobs'
     introduction = ('Explore opportunities in AI training, evaluation and data collection.' if public_reader
                     else 'Explore all available opportunities. Use filters to narrow your search.')
 
+    legacy_header = "<header class='site-header'><a class='brand' href='/jobs'>Wahojobs</a>" + navigation + "</header>"
     return f"""<!doctype html>
 <html lang='en'>
 <head>
@@ -690,13 +692,11 @@ def render_public_jobs_page(
   <meta name='description' content='{public_job_page.e(introduction + description_suffix)}'>
   {robots}
   {canonical}
-  <style>{public_job_page.PUBLIC_JOB_CSS}{PUBLIC_JOBS_CSS}{candidate_style()}</style>
+  <style>{public_job_page.PUBLIC_JOB_CSS}{PUBLIC_JOBS_CSS}{candidate_style()}{brand.CSS if public_reader else ''}</style>
+  {brand.FAVICON if public_reader else ''}
 </head>
 <body>
-  <header class='site-header'>
-    <a class='brand' href='/jobs'>Wahojobs</a>
-    {navigation}
-  </header>
+  {brand.HEADER if public_reader else legacy_header}
   <main class='catalog-main'>
     <header class='catalog-hero'>
       <h1>{heading}</h1>

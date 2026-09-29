@@ -50,6 +50,45 @@ class PublicCatalogReaderTests(unittest.TestCase):
         return (reader or self.reader).handle('GET', path,
             (('Host', 'www.wahojobs.com'), ('Cookie', cookie)))
 
+    def test_public_brand_is_shared_by_catalog_detail_empty_and_unavailable_states(self):
+        from wahojobs import public_catalog_brand as brand
+        paths = ['/jobs', '/jobs?q=no-such-role-xyz', '/jobs/opportunity-9002',
+                 '/jobs/opportunity-999999', '/jobs?invalid=x']
+        for path in paths:
+            with self.subTest(path=path):
+                response = self.get(path)
+                page = response.body.decode()
+                self.assertEqual(page.count(brand.HEADER), 1)
+                self.assertIn(brand.FAVICON, page)
+                self.assertIn(brand.CSS, page)
+                self.assertIn("width='193' height='40'", page)
+                csp = dict(response.headers)['Content-Security-Policy']
+                self.assertIn("default-src 'none'", csp)
+                self.assertIn("img-src 'self'; font-src 'self'", csp)
+                self.assertNotIn('https:', csp)
+                self.assertNotIn('localhost', page)
+        unavailable = self.make_reader()
+        unavailable._available = Mock(side_effect=ValueError('retired'))
+        response = self.get('/jobs', reader=unavailable)
+        self.assertEqual(response.status, 503)
+        self.assertIn(brand.HEADER.encode(), response.body)
+        self.assertEqual(dict(response.headers)['X-Robots-Tag'], 'noindex,follow')
+        self.now += timedelta(hours=73)
+        self.assertIn(brand.HEADER.encode(), self.get('/jobs/opportunity-9002').body)
+
+    def test_public_brand_does_not_change_legacy_or_private_shell_or_routes(self):
+        from wahojobs import public_job_page as detail
+        catalog_html = catalog.render_public_jobs_page(catalog.build_catalog(self.jobs, {}),
+                                                       public_origin='https://beta.wahojobs.com')
+        detail_html = detail.render_public_job_page(self.jobs[0], public_origin='https://beta.wahojobs.com')
+        for page in (catalog_html, detail_html):
+            self.assertNotIn('wahojobsLogo.png', page)
+            self.assertNotIn('Poppins-Regular.ttf', page)
+        # Asset ownership stays with the website; the reader gains no generic proxy.
+        self.assertEqual(self.get('/jobs/assets/images/wahojobsLogo.png').status, 404)
+        self.assertEqual(self.get('/assets/images/wahojobsLogo.png').status, 404)
+        self.assertNotIn(b'public-brand-header', self.get('/jobs/sitemap.xml').body)
+
     def test_anonymous_search_detail_return_and_destination_reuse_source_fields(self):
         result = self.get('/jobs?q=Python&location=Brazil')
         self.assertEqual(result.status, 200)
