@@ -9,10 +9,11 @@ from wahojobs.catalog_source_presentation import bound_metadata
 
 
 def oneforma_metadata(job):
+    if (job.get('company_slug') != 'oneforma'
+            or job.get('rich_source_type') != 'oneforma-wordpress-marketplace'):
+        return {}
     metadata = bound_metadata(job)
-    if (job.get('company_slug') == 'oneforma'
-            and job.get('rich_source_type') == 'oneforma-wordpress-marketplace'
-            and metadata.get('variant_apply_url') == job.get('listing_url')):
+    if metadata.get('variant_apply_url') == job.get('listing_url'):
         return metadata
     return {}
 
@@ -25,7 +26,6 @@ def application_only(url):
 def prepare_source_links(job):
     from wahojobs.public_job_page import first_human_facing_url
     source = apply = first_human_facing_url(job.get('official_url'))
-    metadata = bound_metadata(job)
     oneforma = oneforma_metadata(job)
     if oneforma:
         public = first_human_facing_url(oneforma.get('public_url'))
@@ -38,6 +38,7 @@ def prepare_source_links(job):
             source = None
     elif job.get('company_slug') in ('dataforce', 'dataannotation', 'handshake'):
         # These providers retain role-owned, validated application actions.
+        metadata = bound_metadata(job)
         apply = first_human_facing_url(metadata.get('application_url')) or apply
     if application_only(source):
         source = None
