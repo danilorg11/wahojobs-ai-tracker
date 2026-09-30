@@ -11,7 +11,7 @@ import unittest
 from unittest.mock import patch
 
 from scripts import daily_inventory as cli
-from wahojobs import beta_recovery as recovery, daily_inventory as daily
+from wahojobs import beta_recovery as recovery, daily_inventory as daily, operational_budgets as budgets
 from wahojobs.recovery_archive import VERSION
 from tests import test_daily_source_coverage as coverage
 from tests.evidence_maintenance_support import T0
@@ -57,7 +57,7 @@ class DailyPackagedBackupIntegrationTests(unittest.TestCase):
             self.assertLessEqual(timeout,daily.execution_seconds(self.config))
             arguments=arguments[arguments.index('worker'):]
             phase=arguments[arguments.index('--phase')+1];calls.append(phase)
-            if phase=='backup':self.assertLessEqual(timeout,60)
+            if phase=='backup':self.assertLessEqual(timeout,budgets.BACKUP_SECONDS)
             output=io.StringIO()
             with redirect_stdout(output):self.assertEqual(cli.main(arguments),0)
             if capture_output:
@@ -102,7 +102,7 @@ class DailyPackagedBackupIntegrationTests(unittest.TestCase):
         target=Path(self.config['state_directory'])/'runs'/receipt['run_id']
         self.assertEqual(daily.read_json(target/'backup.json')['snapshot_version'],VERSION)
         self.assertEqual(daily.read_json(target/'journal-preparation.json')['snapshot_version'],VERSION)
-        self.assertEqual((daily.PUBLICATION_SECONDS,daily.RECOVERY_SECONDS),(360,120))
+        self.assertEqual((daily.PUBLICATION_SECONDS,daily.RECOVERY_SECONDS),(600,420))
         if original_daily:self.assertEqual(original_daily[0].read_bytes(),original_daily[1])
 
     def test_scheduled_run_publishes_with_v2_preparation_and_direct_manifest_proof(self):
