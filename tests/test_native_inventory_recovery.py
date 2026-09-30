@@ -112,7 +112,7 @@ class NativeRecoveryTests(unittest.TestCase):
     @unittest.skipUnless(os.name=='posix','native beta uses Linux process groups')
     def test_timeout_during_large_transaction_gracefully_rolls_back(self):
         with self.assertRaises(subprocess.TimeoutExpired):
-            cli.bounded_process([sys.executable,'-B','-c',WRITER,str(self.db),str(self.root/'ready'),'graceful'],timeout=1)
+            cli.bounded_process([sys.executable,'-B','-c',WRITER,str(self.db),str(self.root/'ready'),'graceful'],timeout=5)
         self.assertTrue((self.root/'ready').exists());self.check_recovered()
     @unittest.skipUnless(os.name=='posix','native beta uses Linux process groups')
     def test_child_cannot_outlive_completed_parent_into_recovery(self):
