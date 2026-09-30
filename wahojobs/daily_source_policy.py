@@ -98,8 +98,9 @@ POLICY = {
 }
 READY_SOURCES = tuple(s for s in CORE_SOURCES if POLICY[s]['readiness'] == 'ready')
 NEW_SCOPES_REQUIRE_EXPLICIT_CONFIGURATION = frozenset({'dataannotation', 'dataforce', 'handshake', 'surge', 'outlier'})
-OVERHEAD_SECONDS = 240  # stop/preflight queries, one backup, final integrity, process cleanup
-MAX_EXECUTION_SECONDS = 2580  # shared native ceiling; expanded source caps must fit configured budgets
+from wahojobs.operational_budgets import NON_NETWORK_EXECUTION_SECONDS
+OVERHEAD_SECONDS = NON_NETWORK_EXECUTION_SECONDS
+MAX_EXECUTION_SECONDS = 3300  # source caps unchanged; additional time is stored-state work
 
 
 def default_sources():

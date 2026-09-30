@@ -228,11 +228,11 @@ class NativeRecoveryTests(unittest.TestCase):
         clock=[0.0]
         def preflight():clock[0]+=3
         def stopped(remaining):
-            self.assertEqual(remaining,107)
+            self.assertEqual(remaining,407)
             clock[0]+=2
             return False
         def unavailable(remaining):
-            self.assertEqual(remaining,105)
+            self.assertEqual(remaining,405)
             clock[0]+=20
             raise RuntimeError('unavailable')
         ops=Mock();ops.recovery_preflight.side_effect=preflight
@@ -242,9 +242,9 @@ class NativeRecoveryTests(unittest.TestCase):
                 daily,'now',return_value=daily.parse('2026-09-25T08:00:00+00:00')):
             cli.recover(config,'fixture')
         ops.recovery_preflight.assert_called_once()
-        ops.application_stopped.assert_called_once_with(107)
-        ops.ready.assert_called_once_with(105)
-        self.assertEqual(ops.restore.call_args.args,(85,))
+        ops.application_stopped.assert_called_once_with(407)
+        ops.ready.assert_called_once_with(405)
+        self.assertEqual(ops.restore.call_args.args,(385,))
         self.assertEqual(path.read_bytes(),original)
         self.assertTrue(daily.read_json(path.parent/'application-recovery.json')['application_ready'])
         with patch.object(cli,'NativeOperations',return_value=Mock()) as constructor:

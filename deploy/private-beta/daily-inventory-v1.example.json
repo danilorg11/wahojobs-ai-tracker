@@ -87,8 +87,8 @@
       "seconds_max": 90
     }
   },
-  "execution_seconds": 2520,
-  "recovery_seconds": 120,
+  "execution_seconds": 3240,
+  "recovery_seconds": 420,
   "catch_up_seconds": 3600,
   "details": 0,
   "retries": 0,

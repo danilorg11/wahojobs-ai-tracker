@@ -9,7 +9,7 @@ Type=oneshot
 User=root
 WorkingDirectory=/opt/wahojobs-beta/current
 ExecStart=/opt/wahojobs-beta/current/.venv/bin/python -B scripts/daily_inventory.py recover --policy /etc/wahojobs-inventory-v1.json
-TimeoutStartSec=120
+TimeoutStartSec=450
 UMask=0077
 
 [Install]

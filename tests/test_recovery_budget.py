@@ -49,10 +49,10 @@ class RecoveryBudgetTests(unittest.TestCase):
                 process.assert_not_called()
 
     def test_start_and_final_health_never_dispatch_after_deadline(self):
-        for clock,calls in (([0,120],1),([0,10,120],2)):
+        for clock,calls in (([0,420],1),([0,10,420],2)):
             with patch.object(cli.time,'monotonic',side_effect=clock),patch.object(cli,'bounded_process') as process:
                 with self.assertRaisesRegex(TimeoutError,'recovery_deadline'):
-                    self.operations.restore(120)
+                    self.operations.restore(420)
                 self.assertEqual(process.call_count,calls)
 
     def test_repair_timeout_failure_and_cancellation_never_start_service(self):
@@ -63,11 +63,11 @@ class RecoveryBudgetTests(unittest.TestCase):
             with self.subTest(error=type(error).__name__),patch.object(
                     cli,'bounded_process',side_effect=error) as process:
                 with self.assertRaises(type(error)) as raised:
-                    self.operations.restore(120)
+                    self.operations.restore(420)
                 self.assertIs(raised.exception,error)
                 process.assert_called_once()
                 self.assertIn('repair-storage',process.call_args.args[0])
-                self.assertEqual(process.call_args.kwargs['timeout'],40)
+                self.assertEqual(process.call_args.kwargs['timeout'],160)
 
     @unittest.skipUnless(os.name=='posix','Native process-group teardown requires POSIX')
     def test_real_repair_subprocess_timeout_and_nonzero_exit_block_start(self):
@@ -81,7 +81,7 @@ class RecoveryBudgetTests(unittest.TestCase):
                     self.assertIn('repair-storage',args)
                     return native_process([sys.executable,'-B','-c',code],cwd=temp,timeout=.1)
                 with patch.object(cli,'bounded_process',side_effect=isolated_repair):
-                    with self.assertRaises(error):self.operations.restore(120)
+                    with self.assertRaises(error):self.operations.restore(420)
                 self.assertEqual(len(calls),1)
 
     def test_stopped_observation_does_not_bypass_live_process_recheck(self):
@@ -113,7 +113,7 @@ class RecoveryBudgetTests(unittest.TestCase):
             operations=cli.NativeOperations(config,'fixture')
             def preflight():clock[0]+=3
             def state_probe(remaining):
-                self.assertEqual(remaining,107)
+                self.assertEqual(remaining,407)
                 clock[0]+=probe_seconds
                 return stopped
             def process(args,**kwargs):
@@ -138,7 +138,7 @@ class RecoveryBudgetTests(unittest.TestCase):
 
     def test_stopped_old_receipt_retains_shared_budget_without_polling(self):
         timeouts,elapsed=self.run_old_recovery(True)
-        self.assertEqual(timeouts,[25,75,41])
+        self.assertEqual(timeouts,[145,245,20])
         self.assertEqual(elapsed,69)
 
     def test_uncertain_live_service_keeps_existing_readiness_retries(self):
@@ -148,7 +148,7 @@ class RecoveryBudgetTests(unittest.TestCase):
 
     def test_failed_preliminary_readiness_still_consumes_shared_budget(self):
         timeouts,elapsed=self.run_old_recovery(False,probe_seconds=0)
-        self.assertEqual(timeouts,[25,2,75,18])
+        self.assertEqual(timeouts,[25,122,245,20])
         self.assertEqual(elapsed,92)
 
     def test_stopped_repair_failure_preserves_receipt_and_requires_recovery(self):
@@ -172,7 +172,7 @@ class RecoveryBudgetTests(unittest.TestCase):
                     query.assert_called_once()
                     process.assert_called_once()
                     self.assertIn('repair-storage',process.call_args.args[0])
-                    self.assertEqual(process.call_args.kwargs['timeout'],30)
+                    self.assertEqual(process.call_args.kwargs['timeout'],150)
                     suspend.assert_called_once_with(config,receipt)
                 self.assertEqual(path.read_bytes(),original)
                 self.assertFalse((path.parent/'application-recovery.json').exists())
@@ -187,10 +187,10 @@ class RecoveryBudgetTests(unittest.TestCase):
             receipt.update(maintenance_started_at=daily.stamp(at),normal_service_resumed=False,outcome='failed')
             path=root/'runs'/receipt['run_id']/'run.json';daily.write_json(path,receipt)
             clock=[0];operations=cli.NativeOperations(config,'fixture')
-            def preflight():clock[0]=108
+            def preflight():clock[0]=408
             def query(*args,**kwargs):
                 self.assertEqual(kwargs['timeout'],2)
-                clock[0]=110
+                clock[0]=410
                 raise subprocess.TimeoutExpired('show',2)
             with patch.object(cli,'NativeOperations',return_value=operations),patch.object(
                     operations,'recovery_preflight',side_effect=preflight),patch.object(

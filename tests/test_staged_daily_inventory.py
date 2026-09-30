@@ -120,10 +120,10 @@ class StagedSupervisorTests(unittest.TestCase):
             config=dict(sources=sources)
             with self.subTest(source=source):
                 daily.validate_sources(sources)
-                self.assertEqual(daily.publication_seconds(config),240)
-                self.assertEqual(daily.execution_seconds(config)-daily.publication_seconds(config),
-                    sources[source]['seconds_max'])
-        self.assertEqual(daily.publication_seconds(dict(sources=daily.default_sources())),360)
+                self.assertEqual(daily.publication_seconds(config),600)
+                self.assertGreaterEqual(daily.execution_seconds(config)-daily.publication_seconds(config),
+                    sources[source]['seconds_max']+300)
+        self.assertEqual(daily.publication_seconds(dict(sources=daily.default_sources())),600)
 
     def test_production_policy_budget_accepts_online_preparation_after_fast_collection(self):
         # Exact enabled-source budget of the September 28 operator repair.
@@ -134,17 +134,17 @@ class StagedSupervisorTests(unittest.TestCase):
         sources={source:dict(enabled=source!='micro1',http_max=requests,seconds_max=seconds)
             for source,(requests,seconds) in budgets.items()}
         daily.validate_sources(sources)
-        self.assertEqual(daily.aggregate(sources),dict(http_max=528,execution_seconds=2580))
+        self.assertEqual(daily.aggregate(sources),dict(http_max=528,execution_seconds=3300))
         with tempfile.TemporaryDirectory() as temp:
             config=dict(state_directory=temp,sources=sources)
             target=Path(temp)/'runs/fixture';target.mkdir(parents=True)
             receipt=dict(run_id='fixture',outcome='running',supervisor_pid=123,
-                execution_deadline_monotonic=2580,active_phase=dict(name='prepare-backup',deadline=2580-daily.PUBLICATION_SECONDS))
+                execution_deadline_monotonic=3300,active_phase=dict(name='prepare-backup',deadline=3300-daily.PUBLICATION_SECONDS))
             daily.write_json(target/'run.json',receipt)
             # About 165 seconds of online collection has elapsed. Publication
             # remains reserved inside, not added to, the overall native limit.
-            available=2580-daily.PUBLICATION_SECONDS-165
-            self.assertGreater(available,daily.EXECUTION_SECONDS)
+            available=3300-daily.PUBLICATION_SECONDS-165
+            self.assertGreater(available,300)
             self.assertEqual(cli._claim_worker_deadline(config,'fixture','prepare-backup',123,165),available)
             self.assertTrue((target/'prepare-backup-dispatch.claim').exists())
             with self.assertRaises(FileExistsError):
@@ -157,7 +157,7 @@ class StagedSupervisorTests(unittest.TestCase):
             receipt=dict(run_id='fixture',outcome='running',supervisor_pid=123,
                 execution_deadline_monotonic=3000,active_phase=dict(name='prepare-backup',deadline=2175))
             daily.write_json(target/'run.json',receipt)
-            for limit in (2040,2581):
+            for limit in (2040,3301):
                 with self.subTest(limit=limit),self.assertRaises(ValueError):
                     cli.claim_dispatch(temp,'fixture',123,0,'prepare-backup',execution_limit=limit)
                 self.assertFalse((target/'prepare-backup-dispatch.claim').exists())
@@ -245,9 +245,9 @@ class StagedSupervisorTests(unittest.TestCase):
             observation=SimpleNamespace(result=SimpleNamespace(jobs=[1]))
             with patch.object(cli.time,'monotonic',side_effect=lambda:clock[0]),\
                     patch.object(native,'phase',side_effect=phase),patch.object(staged,'load',return_value=(observation,{})):
-                self.assertTrue(native.collect('fixture',500))
+                self.assertTrue(native.collect('fixture',900))
             self.assertEqual([name for name,_ in calls],['prepare','collect-appen','prepare-backup'])
-            self.assertEqual(calls[-1][1],500-daily.PUBLICATION_SECONDS)
+            self.assertEqual(calls[-1][1],900-daily.PUBLICATION_SECONDS)
 
     def test_online_failure_never_stops_or_restores_beta(self):
         with tempfile.TemporaryDirectory() as temp:
@@ -293,7 +293,7 @@ class StagedSupervisorTests(unittest.TestCase):
             def phase(run_id,name,deadline):
                 self.assertLessEqual(deadline,daily.PUBLICATION_SECONDS);self.assertGreater(deadline,clock[0])
                 if name=='backup':
-                    self.assertEqual(deadline,60);clock[0]+=30.877;return
+                    self.assertEqual(deadline,180);clock[0]+=30.877;return
                 if name=='finish':clock[0]+=2.286;return
                 source=name.removeprefix('publish-');order.append(source)
                 caps[source]=deadline-clock[0]
@@ -369,7 +369,7 @@ class StagedSupervisorTests(unittest.TestCase):
             def phase(run_id,name,deadline):
                 self.assertLessEqual(deadline,available)
                 if name=='backup':
-                    self.assertEqual(deadline,60);clock[0]+=45;return
+                    self.assertEqual(deadline,180);clock[0]+=45;return
                 if name=='finish':
                     self.assertGreaterEqual(deadline-clock[0],50);clock[0]+=45;return
                 source=name.removeprefix('publish-');attempted.append(source)
@@ -381,7 +381,7 @@ class StagedSupervisorTests(unittest.TestCase):
                 native.publish('fixture',available)
             self.assertEqual(set(attempted),set(weights));self.assertEqual(len(attempted),14)
             self.assertLess(clock[0],available)
-            self.assertEqual(daily.RECOVERY_SECONDS,120)
+            self.assertEqual(daily.RECOVERY_SECONDS,420)
 
     def test_publication_rejects_duplicate_or_invalid_source_allocations(self):
         cases=[(['appen','appen'],dict(appen=1)),(['unknown'],dict(unknown=1)),

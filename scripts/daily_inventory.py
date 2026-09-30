@@ -331,14 +331,17 @@ class NativeOperations:
         daily.write_json(target/'publication-sources.json',available)
         daily.write_json(target/'publication-weights.json',weights)
         if available:
+            from wahojobs.operational_budgets import JOURNAL_PREPARATION_SECONDS
             # Historical evidence work stays online and cannot consume the
             # reserved cold-publication window or widen any source allowance.
-            self.phase(run_id,'prepare-backup',deadline-daily.publication_seconds(self.config))
+            self.phase(run_id,'prepare-backup',min(deadline-daily.publication_seconds(self.config),
+                time.monotonic()+JOURNAL_PREPARATION_SECONDS))
         return bool(available)
 
     def publish(self,run_id,remaining):
+        from wahojobs.operational_budgets import BACKUP_SECONDS
         deadline=time.monotonic()+remaining
-        self.phase(run_id,'backup',min(deadline,time.monotonic()+60))
+        self.phase(run_id,'backup',min(deadline,time.monotonic()+BACKUP_SECONDS))
         target=Path(self.config['state_directory'])/'runs'/run_id
         sources=daily.read_json(target/'publication-sources.json',[])
         weights=daily.read_json(target/'publication-weights.json',{s:1 for s in sources})
@@ -375,11 +378,12 @@ class NativeOperations:
                     raise
         self.phase(run_id,'finish',min(deadline,time.monotonic()+finish_reserve))
     def restore(self,remaining):
+        from wahojobs.operational_budgets import SERVICE_START_SECONDS, FINAL_READINESS_SECONDS
         started=time.monotonic()
-        repair_allowance=remaining-80
+        repair_allowance=remaining-SERVICE_START_SECONDS-FINAL_READINESS_SECONDS
         if repair_allowance<=0:raise TimeoutError('recovery_repair_allowance_exhausted')
         def remaining_timeout():
-            allowance=min(75,remaining-(time.monotonic()-started))
+            allowance=min(SERVICE_START_SECONDS+5,remaining-(time.monotonic()-started))
             if allowance<=0:raise TimeoutError('recovery_deadline_expired')
             return allowance
         # A dedicated process bounds validation/recovery independently of the
@@ -388,7 +392,7 @@ class NativeOperations:
             '--policy',str(self.policy)],timeout=repair_allowance)
         bounded_process(['/usr/bin/systemctl','start',daily.SERVICE],timeout=remaining_timeout())
         bounded_process([sys.executable,'-B','scripts/private_beta_health.py','--config','/run/wahojobs-beta/runtime.json'],
-            timeout=remaining_timeout(),user='wahojobs-beta')
+            timeout=min(FINAL_READINESS_SECONDS,remaining_timeout()),user='wahojobs-beta')
     def application_stopped(self,remaining):
         if remaining<=0:raise TimeoutError('recovery_deadline_expired')
         try:

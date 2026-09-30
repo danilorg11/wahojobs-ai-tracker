@@ -52,6 +52,10 @@ def validate_observation(value, source):
     # Controlled public captures have a bounded same-day handoff window. This
     # limits publication of retained evidence; it does not renew its timestamp.
     max_age_seconds = 21600 if controlled else 3600
+    from wahojobs.retained_publication import recovery_age_limit
+    recovery_limit = recovery_age_limit(value)
+    if recovery_limit is not None:
+        max_age_seconds = recovery_limit
     if (value.controlled_validation and not controlled
             or not 0 <= (end-start).total_seconds() <= seconds_max
             or not 0 <= (at-end).total_seconds() <= max_age_seconds
@@ -152,8 +156,10 @@ def load(directory, source, *, run_id, code_commit, journal_root, consume=False)
     plan_id = json.loads((root/(source+'-collection.json')).read_text())['plan_id']
     report = maintenance.report(journal_root, plan_id)
     plan = report['plan']
+    from wahojobs.retained_publication import compatible_collection
     if (plan.get('kind') != VERSION or plan.get('run_id') != run_id or plan.get('source') != source
-            or plan.get('code_commit') != code_commit or plan.get('contract_fingerprint') != maintenance.contract_fingerprint()
+            or plan.get('code_commit') != code_commit or (
+                plan.get('contract_fingerprint') != maintenance.contract_fingerprint() and not compatible_collection(report))
             or report['status'] != 'collected_unpublished'):
         raise ValueError('completed_bound_collection_required')
     collected = [e['data'] for e in report['events'] if e['event'] == 'collected_result']

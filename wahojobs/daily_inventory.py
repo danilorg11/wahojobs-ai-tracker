@@ -20,13 +20,9 @@ from wahojobs.daily_source_policy import (CORE_SOURCES, POLICY, READY_SOURCES, A
     default_sources, validate_sources, aggregate)
 SOURCES=CORE_SOURCES
 EXECUTION_SECONDS=aggregate(default_sources())['execution_seconds']
-RECOVERY_SECONDS=120
-# The outage is bounded independently from the online network cycle. Stop,
-# cold backup, publication and integrity share this smaller execution allowance.
-# The complete 14-source September 28 rehearsal outgrew the former four-minute
-# pool. Reserve six minutes within the unchanged overall execution ceiling;
-# worker rollback, 60-second backup and 120-second recovery stay independent.
-PUBLICATION_SECONDS=360
+from wahojobs.operational_budgets import RECOVERY_SECONDS, PUBLICATION_SECONDS
+# Stop, complete prepared backup, publication and final integrity share one
+# finite deadline. Recovery has a separate absolute deadline.
 FINAL_INTEGRITY_SECONDS=60  # includes cold-page validation, process startup and rollback reserve
 CATCH_UP_SECONDS=3600
 VERSION='daily_inventory_v1_all_sources'

@@ -67,7 +67,7 @@ class DailyPolicyTests(unittest.TestCase):
                 result=cli.supervise(config,self.root/'policy','timer',operations=operations)
             self.assertEqual(result['outcome'],'failed')
             self.assertTrue(result['normal_service_resumed'])
-            operations.restore.assert_called_once_with(120)
+            operations.restore.assert_called_once_with(d.RECOVERY_SECONDS)
             with patch.object(d,'now',return_value=self.at):
                 second=cli.supervise(config,self.root/'policy','timer',operations=operations)
             self.assertEqual(second['outcome'],'already_consumed_or_not_due')
@@ -191,7 +191,7 @@ class DailyPolicyTests(unittest.TestCase):
             return original(path,value)
         with patch.object(d,'now',return_value=self.at),patch.object(d,'write_json',side_effect=failing):
             result=cli.supervise(self.config,self.root/'policy','timer',operations=operations)
-        operations.restore.assert_called_once_with(120)
+        operations.restore.assert_called_once_with(d.RECOVERY_SECONDS)
         self.assertTrue(result['normal_service_resumed'])
 
     def test_recovery_remaining_allowance_and_persistence_failure(self):
@@ -200,7 +200,7 @@ class DailyPolicyTests(unittest.TestCase):
         target=self.root/'runs'/receipt['run_id']/'run.json';d.write_json(target,receipt)
         with patch.object(d,'now',return_value=self.at+timedelta(seconds=50)),patch.object(cli,'NativeOperations') as native,patch.object(d,'write_json',side_effect=OSError('fixture disk full')),patch.object(cli.time,'monotonic',side_effect=[0,20]):
             with self.assertRaises(OSError):cli.recover(self.config,self.root/'policy')
-        native.return_value.restore.assert_called_once_with(90)
+        native.return_value.restore.assert_called_once_with(d.RECOVERY_SECONDS-30)
 
     def test_worker_dispatch_is_bound_to_one_current_parent_and_deadline(self):
         receipt=d.reserve_run(self.root,self.at,self.at,'timer')

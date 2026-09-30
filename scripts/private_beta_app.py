@@ -14,6 +14,7 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 from wahojobs.remote_beta import make_remote_handler
+from wahojobs.operational_budgets import RUNTIME_PREPARATION_SECONDS
 from wahojobs.workos_authkit_staging import (
     WorkOSAuthKitStagingError, build_workos_authkit_staging_runtime,
     load_workos_authkit_staging_configuration,
@@ -64,7 +65,7 @@ def prepare_runtime(runtime, *, catalog_configuration=None):
         def expired(_signal, _frame):
             raise WorkOSAuthKitStagingError('runtime_unavailable')
         previous = signal.signal(signal.SIGALRM, expired)
-        signal.alarm(60)
+        signal.alarm(RUNTIME_PREPARATION_SECONDS)
     try:
         jobs = runtime.prepare_serving_inventory()
         if catalog_configuration is not None:

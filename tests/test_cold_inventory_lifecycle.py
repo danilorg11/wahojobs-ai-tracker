@@ -237,8 +237,8 @@ print('actual_alarm_lifecycle_passed')
         operations = daily.NativeOperations({'database': 'synthetic.sqlite'}, 'synthetic-policy')
         with patch.object(daily, 'bounded_process') as process, \
              patch.object(daily.time, 'monotonic', side_effect=[0, 12, 70]):
-            operations.restore(120)
-        self.assertEqual([call.kwargs['timeout'] for call in process.call_args_list], [40, 75, 50])
+            operations.restore(420)
+        self.assertEqual([call.kwargs['timeout'] for call in process.call_args_list], [160, 245, 20])
         with patch.object(daily, 'bounded_process', side_effect=TimeoutError) as process:
             with self.assertRaises(TimeoutError):
                 operations.restore(20)

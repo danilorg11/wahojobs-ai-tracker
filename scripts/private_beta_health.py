@@ -18,9 +18,10 @@ def main(argv=None):
     config=None
     try:
         config=load_workos_authkit_staging_configuration(args.config,remote_beta=True)
-        # Startup includes bounded stored-catalog/source preparation. The native
-        # recovery caller still enforces its unchanged 120-second total budget.
-        deadline=time.monotonic()+70
+        from wahojobs.operational_budgets import HEALTH_SECONDS
+        # Usable preparation precedes binding; the caller retains its own
+        # absolute recovery deadline including repair and startup.
+        deadline=time.monotonic()+HEALTH_SECONDS
         while time.monotonic()<deadline:
             client=HTTPConnection(*config.bind_address,timeout=1)
             try:
