@@ -179,13 +179,15 @@ owner authentication, desktop/mobile browser journey or screenshots are claimed.
 Owner screenshots show Production Magic Auth enabled and the exact callback and
 sign-out URIs saved; they do not prove the key or complete hosted signup journey.
 
-The current public privacy policy was fetched directly and says no visitor
-email/personal data is collected and no personally identifying information is
-transferred to outside parties. It does not describe optional verified candidate
-identity, WorkOS processing, private tracking history or retention/deletion
-support. This is a specific material disclosure gap to resolve before public
-advertising, not a claim of compliance or an automatic legal rewrite. Existing
-`/privacy-policy`, `/tos` and `/contact` links are reused.
+The current public privacy policy was fetched directly. It allows voluntarily
+provided personal data with consent, but says personally identifying information
+is not transferred to outside parties (apart from its stated IP-location service
+exception). That statement does not accurately describe sending a candidate's
+email to WorkOS for authentication. It also does not describe optional candidate
+identity, private tracking history or retention/deletion support. Report these
+specific disclosure gaps before public advertising; this integration does not
+claim compliance or rewrite the legal policy. Existing `/privacy-policy`, `/tos`
+and `/contact` links are reused.
 
 Production test path: anonymous `/jobs` with filters/page → explicit Save →
 email-code signup → exact source/return → Saved → My Jobs → Applied → correction
