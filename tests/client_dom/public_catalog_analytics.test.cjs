@@ -76,6 +76,12 @@ test('stored TCF grant, repeated callbacks, revocation and regrant never duplica
   f.window.notify(tcf(), true); assert.equal(f.window['ga-disable-' + id], false);
   assert.equal(f.events().length, 1); assert.equal(f.scripts.length, 2);
 });
+test('withdrawal survives an unavailable frame and still removes it',()=>{
+  const f=fixture();f.resolve(tcf());
+  Object.defineProperty(f.scripts[1],'contentWindow',{get(){throw Error('blocked frame');}});
+  assert.doesNotThrow(()=>f.window.notify(tcf({purpose:{consents:{1:false}}}),true));
+  assert.equal(f.window['ga-disable-'+id],true);assert.equal(f.scripts[1].removed,true);
+});
 test('CMP explicit non-GDPR decision grants without inventing purpose consents', () => {
   const f = fixture(); f.resolve(tcf({gdprApplies: false, purpose: undefined}));
   assert.equal(f.events().length, 1);
@@ -109,7 +115,7 @@ test('nested catalog documents cannot recursively initialize', () => {
 });
 function collector() {
   const sends=[], tags=[];
-  const parent = {['ga-disable-'+id]:false};
+  const parent = {['ga-disable-'+id]:false,location:{pathname:'/jobs'}};
   const window = {parent,location:{origin:'https://www.wahojobs.com'},
     addEventListener:(type,fn)=>{window.notify=fn;},removeEventListener(){},
     fetch:(url,options)=>{sends.push(['fetch',url]);return Promise.resolve();}};
@@ -117,12 +123,13 @@ function collector() {
   function XMLHttpRequest() {}
   XMLHttpRequest.prototype.open=function(){};
   XMLHttpRequest.prototype.send=function(){sends.push(['xhr']);};
+  XMLHttpRequest.prototype.abort=function(){this.aborted=true;};
   const document={head:{appendChild:tag=>tags.push(tag)},createElement:()=>({})};
   const context=vm.createContext({window,navigator,document,XMLHttpRequest,Date,URL,URLSearchParams,Promise,Response});
   vm.runInContext(input.frame.match(/<script>([\s\S]*?)<\/script>/)[1],context);
   window.notify({source:parent,origin:'https://www.wahojobs.com',
     data:{type:'wahojobs-public-measurement',commands:'[]'}});
-  return {window,parent,navigator,sends,tags};
+  return {window,parent,navigator,sends,tags,XMLHttpRequest};
 }
 function request(overrides={}) {
   return 'https://www.google-analytics.com/g/collect?'+new URLSearchParams({
@@ -147,8 +154,32 @@ test('transport rejects after withdrawal and unknown body types',()=>{
   const f=collector();f.navigator.sendBeacon(request(),{});assert.equal(f.sends.length,0);
   f.parent['ga-disable-'+id]=true;f.navigator.sendBeacon(request());assert.equal(f.sends.length,0);
 });
-test('fetch and XHR apply the same policy without touching parent transport',async()=>{
-  const f=collector();await f.window.fetch(request({en:'form_submit'}));assert.equal(f.sends.length,0);
+test('fetch rejects blocked events without fabricating HTTP success',async()=>{
+  const f=collector();await assert.rejects(f.window.fetch(request({en:'form_submit'})),/Measurement request blocked/);
+  assert.equal(f.sends.length,0);
   await f.window.fetch(request());assert.equal(f.sends.length,1);
   f.navigator.sendBeacon(request());assert.equal(f.sends.length,1);
 });
+test('XHR aborts blocked events and permits the real pageview once',()=>{
+  const f=collector();const bad=new f.XMLHttpRequest();bad.open('POST',request({en:'scroll'}));bad.send();
+  assert.equal(bad.aborted,true);assert.equal(f.sends.length,0);
+  const good=new f.XMLHttpRequest();good.open('POST',request());good.send();assert.equal(f.sends.length,1);
+});
+test('blocked beacon reports failure instead of accepted delivery',()=>{
+  const f=collector();assert.equal(f.navigator.sendBeacon(request({en:'scroll'})),false);
+  assert.equal(f.sends.length,0);
+});
+test('another public pathname or title cannot replace the actual document view',()=>{
+  const f=collector();f.navigator.sendBeacon(request({dl:'https://www.wahojobs.com/jobs/opportunity-123'}));
+  f.navigator.sendBeacon(request({dt:'Job opportunity | Wahojobs'}));assert.equal(f.sends.length,0);
+});
+for(const body of [null,'dl=https%3A%2F%2Fwww.wahojobs.com%2Fjobs'])
+  test('duplicate parameters cannot hide a different URL/body value '+String(body),()=>{
+    const f=collector();const duplicate=body===null ? request()+'&dl=private%40example.test' : request();
+    f.navigator.sendBeacon(duplicate,body);assert.equal(f.sends.length,0);
+  });
+for(const prefix of ['https://www.google-analytics.com:444','https://name:secret@www.google-analytics.com'])
+  test('transport rejects credentials and nonstandard origins '+prefix,()=>{
+    const f=collector();f.navigator.sendBeacon(request().replace('https://www.google-analytics.com',prefix));
+    assert.equal(f.sends.length,0);
+  });

@@ -38,8 +38,12 @@ SCRIPT = r"""
   window.dataLayer = window.dataLayer || [];
   function queue() {
     window.dataLayer.push(arguments);
-    if (frame && frame.contentWindow.__wahojobsQueue) {
-      frame.contentWindow.__wahojobsQueue(JSON.stringify(Array.prototype.slice.call(arguments)));
+    if (frame) {
+      try {
+        if (frame.contentWindow.__wahojobsQueue) {
+          frame.contentWindow.__wahojobsQueue(JSON.stringify(Array.prototype.slice.call(arguments)));
+        }
+      } catch (_) { /* An unavailable/blocked frame cannot collect. */ }
     }
   }
   function consent(value) {
@@ -63,12 +67,13 @@ SCRIPT = r"""
     if (allowed === value) return;
     allowed = value;
     window[disable] = !allowed;
-    if (!allowed && frame) frame.contentWindow[disable] = true;
+    if (!allowed && frame) {
+      try { frame.contentWindow[disable] = true; } catch (_) { /* Still remove below. */ }
+    }
     queue('consent', 'update', consent(allowed ? 'granted' : 'denied'));
     if (!allowed) {
       if (frame) {
         // Stop even automatic engagement/consent traffic after withdrawal.
-        frame.contentWindow[disable] = true;
         frame.remove();
         frame = null;
       }
@@ -165,6 +170,10 @@ FRAME_DOCUMENT = r"""<!doctype html><html lang="en"><head>
         !event.data || event.data.type !== 'wahojobs-public-measurement') return;
     window.removeEventListener('message', initialize);
     if (window.parent['ga-disable-G-QFMW1WX907'] !== false) return;
+    var parentPath = window.parent.location.pathname;
+    if (!/^\/jobs(?:\/opportunity-[1-9][0-9]*)?$/.test(parentPath)) return;
+    var expectedLocation = 'https://www.wahojobs.com' + parentPath;
+    var expectedTitle = parentPath === '/jobs' ? 'AI Training Jobs | Wahojobs' : 'Job opportunity | Wahojobs';
     // The property's automatic collectors are not controlled by send_page_view.
     // Limit this document's network transport to one clean manual pageview.
     // This gate is local to the empty iframe, never the product's fetch/XHR.
@@ -174,15 +183,25 @@ FRAME_DOCUMENT = r"""<!doctype html><html lang="en"><head>
       if (body != null && typeof body !== 'string') return false;
       try {
         var destination = new URL(url);
-        if (destination.protocol !== 'https:' ||
-            !/^(?:www|region1)\.google-analytics\.com$/.test(destination.hostname) ||
+        if (!/^https:\/\/(?:www|region1)\.google-analytics\.com$/.test(destination.origin) ||
+            destination.username || destination.password || destination.hash ||
             destination.pathname !== '/g/collect') return false;
         var values = new URLSearchParams(destination.search);
-        new URLSearchParams(body || '').forEach(function (value, key) { values.set(key, value); });
+        var repeated = false, seen = Object.create(null);
+        values.forEach(function (value, key) {
+          if (seen[key]) repeated = true;
+          seen[key] = true;
+        });
+        new URLSearchParams(body || '').forEach(function (value, key) {
+          if (seen[key]) repeated = true;
+          seen[key] = true;
+          values.append(key, value);
+        });
+        if (repeated) return false;
         if (values.get('tid') !== 'G-QFMW1WX907' || values.get('en') !== 'page_view' ||
-            !/^https:\/\/www\.wahojobs\.com\/jobs(?:\/opportunity-[1-9][0-9]*)?$/.test(values.get('dl') || '') ||
+            values.get('dl') !== expectedLocation ||
             (values.get('dr') || '') !== '' ||
-            !/^(?:AI Training Jobs|Job opportunity) \| Wahojobs$/.test(values.get('dt') || '')) return false;
+            values.get('dt') !== expectedTitle) return false;
         var clean = true;
         values.forEach(function (value, key) {
           if (/^(?:ep\.|epn\.|up\.|upn\.|user_|uid$|ud\.|em$|ph$|pn$)/.test(key) || /[\r\n]/.test(value)) clean = false;
@@ -192,14 +211,14 @@ FRAME_DOCUMENT = r"""<!doctype html><html lang="en"><head>
     }
     var beacon = navigator.sendBeacon.bind(navigator);
     navigator.sendBeacon = function (url, body) {
-      if (!permitted(url, body)) return true;
+      if (!permitted(url, body)) return false;
       var accepted = beacon(url, body);
       if (accepted) sent = true;
       return accepted;
     };
     var fetchRequest = window.fetch.bind(window);
     window.fetch = function (url, options) {
-      if (!permitted(url, options && options.body)) return Promise.resolve(new Response(null, {status:204}));
+      if (!permitted(url, options && options.body)) return Promise.reject(new TypeError('Measurement request blocked'));
       sent = true;
       return fetchRequest(url, options);
     };
@@ -209,7 +228,7 @@ FRAME_DOCUMENT = r"""<!doctype html><html lang="en"><head>
       return open.apply(this, arguments);
     };
     XMLHttpRequest.prototype.send = function (body) {
-      if (!permitted(this.__wahojobsUrl, body)) return;
+      if (!permitted(this.__wahojobsUrl, body)) { this.abort(); return; }
       sent = true;
       return send.apply(this, arguments);
     };

@@ -23,6 +23,8 @@ const decision = granted => ({cmpStatus:'loaded', gdprApplies:true,
       const collected = [], errors = [], violations = [];
       let googleLoads = 0;
       await context.addInitScript(({mode, first}) => {
+        window.__nativeProductTransport={fetch:window.fetch,beacon:navigator.sendBeacon,
+          open:XMLHttpRequest.prototype.open,send:XMLHttpRequest.prototype.send};
         window.__fixtureDecision = first;
         window.__fixtureMode = mode;
         document.addEventListener('securitypolicyviolation', e => {
@@ -91,6 +93,9 @@ const decision = granted => ({cmpStatus:'loaded', gdprApplies:true,
         await page.evaluate(data => window.__notify(data,true), decision(true));
       }
       await page.waitForTimeout(1500);
+      if (['grant','late-grant','non-tcf','real-regional'].includes(mode)) {
+        for (let attempt=0;attempt<40 && !collected.length;attempt++) await page.waitForTimeout(100);
+      }
       if (['grant','late-grant','non-tcf','real-regional'].includes(mode) && !collected.length) {
         console.log(JSON.stringify({mode,googleLoads,errors,
           frames:await Promise.all(page.frames().map(f=>f.evaluate(()=>({
@@ -124,6 +129,11 @@ const decision = granted => ({cmpStatus:'loaded', gdprApplies:true,
         assert(!(await context.cookies()).some(c=>c.name.startsWith('_ga')));
       }
       violations.push(...await page.evaluate(()=>window.__violations||[]));
+      assert(await page.evaluate(()=>{
+        const original=window.__nativeProductTransport;
+        return original.fetch===window.fetch && original.beacon===navigator.sendBeacon &&
+          original.open===XMLHttpRequest.prototype.open && original.send===XMLHttpRequest.prototype.send;
+      }),'product transport must remain unchanged');
       assert(collected.every(e=>e.event==='page_view'),JSON.stringify(collected));
       assert.deepEqual(errors,[]); assert.deepEqual(violations,[]);
       results.push({mode,googleLoads,collected,errors,violations,collectionIntercepted:true});
