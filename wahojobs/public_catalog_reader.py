@@ -16,6 +16,7 @@ from urllib.parse import parse_qs, urlsplit
 from xml.sax.saxutils import escape as xml_escape
 
 from wahojobs import public_job_page as detail, public_jobs_catalog as catalog, public_catalog_brand as brand
+from wahojobs import public_catalog_analytics as analytics
 from wahojobs.authenticated_card_evidence import _source_text
 from wahojobs.catalog_source_presentation import (PRESENTATION_VERSION, dataforce_description,
                                                  contribution_context, surge_role_fields, bound_metadata)
@@ -271,8 +272,9 @@ class PublicCatalogReader:
                     if r['provider'] == provider and (not r['is_active'] or not r['active_variants'])))
         return dict(generation=self.generation, providers=providers)
 
-    def _response(self, status, body, *, content_type='text/html; charset=utf-8', indexable=False):
-        if self.candidate_enabled and content_type.startswith('text/html'):
+    def _response(self, status, body, *, content_type='text/html; charset=utf-8', indexable=False,
+                  analytics_document=False):
+        if self.candidate_enabled and content_type.startswith('text/html') and not analytics_document:
             from wahojobs.public_candidate_controls import CSS, SCRIPT
             body = body.decode('utf-8') if type(body) is bytes else body
             body = body.replace('</nav>', "<a href='/my-jobs'>My Jobs</a></nav>", 1)
@@ -285,8 +287,9 @@ class PublicCatalogReader:
         headers = (('Content-Type', content_type), ('Content-Length', str(len(body))),
             ('Cache-Control', 'no-store'), ('X-Robots-Tag', robots), (ROBOTS_HEADER, robots),
             ('X-Content-Type-Options', 'nosniff'), ('Referrer-Policy', 'strict-origin-when-cross-origin'),
-            ('Content-Security-Policy', "default-src 'none'; style-src 'unsafe-inline'; "
-                + brand.ASSET_CSP + "script-src 'self' 'unsafe-inline'; form-action 'self'; base-uri 'none'; frame-ancestors 'none'"))
+            ('Content-Security-Policy', analytics.FRAME_CSP if analytics_document else
+                "default-src 'none'; style-src 'unsafe-inline'; "
+                + brand.ASSET_CSP + analytics.CSP + "form-action 'self'; base-uri 'none'; frame-ancestors 'none'"))
         if status == 503:
             headers += (('Retry-After', '60'),)
         return PublicCatalogResponse(status, body, headers)
@@ -312,7 +315,7 @@ class PublicCatalogReader:
             parsed = urlsplit(target)
         except ValueError:
             return self._message(400, 'Invalid request', 'The requested URL is invalid.')
-        if parsed.path != '/jobs' and parsed.path != '/jobs/sitemap.xml' and not DETAIL_PATH.fullmatch(parsed.path):
+        if parsed.path not in ('/jobs', '/jobs/sitemap.xml', analytics.FRAME_PATH) and not DETAIL_PATH.fullmatch(parsed.path):
             return self._message(404, 'Page not found', 'This page is unavailable.')
         try:
             self._available()
@@ -336,6 +339,10 @@ class PublicCatalogReader:
             return result
 
     def _page(self, parsed):
+        if parsed.path == analytics.FRAME_PATH:
+            if parsed.query:
+                return self._message(400, 'Invalid request', 'Measurement document has no query parameters.')
+            return self._response(200, analytics.FRAME_DOCUMENT, analytics_document=True)
         navigation = "<nav aria-label='Main'><a href='https://www.wahojobs.com/'>Home</a> · <a href='/jobs'>AI Training Jobs</a> · <a href='https://www.wahojobs.com/blog'>Blog</a></nav>"
         if parsed.path == '/jobs':
             params = catalog.parse_catalog_query(parsed.query)

@@ -101,7 +101,9 @@ class PublicCatalogReaderTests(unittest.TestCase):
                 csp = dict(response.headers)['Content-Security-Policy']
                 self.assertIn("default-src 'none'", csp)
                 self.assertIn("img-src 'self'; font-src 'self'", csp)
-                self.assertNotIn('https:', csp)
+                self.assertNotIn(' https:;', csp)
+                self.assertIn('https://the.gatekeeperconsent.com', csp)
+                self.assertIn('https://www.google-analytics.com', csp)
                 self.assertNotIn('localhost', page)
         unavailable = self.make_reader()
         unavailable._available = Mock(side_effect=ValueError('retired'))

@@ -4,6 +4,8 @@ Palette and Poppins files come from the website globals/header. Keep this opt-in
 so authenticated and legacy renderers retain their existing presentation.
 """
 
+from wahojobs.public_catalog_analytics import HEAD as ANALYTICS_HEAD
+
 FAVICON = "<link rel='icon' href='/favicon.ico' sizes='any'>"
 NAVIGATION = ("<nav aria-label='Main'><a href='/'>Home</a>"
               "<a href='/jobs' aria-current='location'>AI Training Jobs</a>"

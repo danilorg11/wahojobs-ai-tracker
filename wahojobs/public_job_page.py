@@ -1069,6 +1069,7 @@ def render_public_job_page(
   {jobposting_script}
   <style>{PUBLIC_JOB_CSS}{brand.CSS if public_reader else ''}</style>
   {brand.FAVICON if public_reader else ''}
+  {brand.ANALYTICS_HEAD if public_reader else ''}
 </head>
 <body>
   {brand.HEADER if public_reader else legacy_header}

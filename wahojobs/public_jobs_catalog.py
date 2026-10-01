@@ -695,6 +695,7 @@ def render_public_jobs_page(
   {canonical}
   <style>{public_job_page.PUBLIC_JOB_CSS}{PUBLIC_JOBS_CSS}{candidate_style()}{brand.CSS if public_reader else ''}</style>
   {brand.FAVICON if public_reader else ''}
+  {brand.ANALYTICS_HEAD if public_reader else ''}
 </head>
 <body>
   {brand.HEADER if public_reader else legacy_header}
