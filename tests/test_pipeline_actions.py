@@ -149,7 +149,7 @@ class PipelineActionTests(unittest.TestCase):
                 }
             )
 
-    def test_untracked_save_has_user_creation_and_terminal_operation_noop(self):
+    def test_untracked_save_has_reversible_terminal_transition(self):
         result = self.create("save")
         self.assertEqual(result.state["workflow_status"], "saved")
         self.assertEqual(result.state["version"], 2)
@@ -159,13 +159,13 @@ class PipelineActionTests(unittest.TestCase):
         )
         self.assertEqual(
             [row["action_name"] for row in history],
-            ["user_created", "product_noop_save"],
+            ["user_created", "product_save"],
         )
         self.assertEqual(history[0]["metadata"]["transition_class"], "user_initialization")
-        self.assertEqual(history[1]["metadata"]["transition_class"], "operation_noop")
+        self.assertNotIn("transition_class", history[1]["metadata"])
         self.assertFalse(history[0]["metadata"]["legacy_snapshot"])
 
-    def test_untracked_applied_is_saved_then_applied_with_applicant_update(self):
+    def test_untracked_applied_is_recommended_then_applied_with_applicant_update(self):
         result = self.create(
             "applied",
             opportunity_external_id="source-job-123",
@@ -179,19 +179,19 @@ class PipelineActionTests(unittest.TestCase):
         )
         self.assertEqual([row["action_name"] for row in history], ["user_created", "product_applied"])
         self.assertEqual(result.applicant_update["status"], "applied")
-        self.assertEqual(result.applicant_update["previous_status"], "saved")
+        self.assertEqual(result.applicant_update["previous_status"], "recommended")
         self.assertEqual(result.applicant_update["opportunity_external_id"], "")
         self.assertIsNone(result.applicant_update["canonical_id"])
 
-    def test_untracked_hidden_restores_saved(self):
+    def test_untracked_hidden_restores_discovery(self):
         hidden = self.create("not_interested")
-        self.assertEqual(hidden.state["workflow_status"], "saved")
+        self.assertEqual(hidden.state["workflow_status"], "recommended")
         self.assertEqual(hidden.state["visibility"], "hidden")
         self.assertEqual(hidden.compatibility_state["status"], "not_interested")
         shown = self.act(hidden, "show_again")
-        self.assertEqual(shown.state["workflow_status"], "saved")
+        self.assertEqual(shown.state["workflow_status"], "recommended")
         self.assertEqual(shown.state["visibility"], "visible")
-        self.assertEqual(shown.compatibility_state["status"], "saved")
+        self.assertEqual(shown.compatibility_state["status"], "recommended")
 
     def test_untracked_creation_rejects_unsupported_first_actions_without_writes(self):
         for action, overrides in (
@@ -1060,7 +1060,7 @@ class PipelineActionTests(unittest.TestCase):
             0,
         )
         for result, final_action in (
-            (saved, "product_noop_save"),
+            (saved, "product_save"),
             (applied, "product_applied"),
             (hidden, "product_not_interested"),
         ):
@@ -1119,10 +1119,11 @@ class PipelineActionTests(unittest.TestCase):
         created = self.create(
             "save", title="Protected transitions", url="https://example.test/protected"
         )
+        created = self.act(created, "save")
         history = pipeline_state.list_transition_history(
             self.conn, created.pipeline_item["pipeline_item_id"], "profile-a"
         )
-        for transition in history:
+        for transition in (history[0], history[-1]):
             with self.assertRaises(pipeline_state.InvalidTransition):
                 pipeline_state.undo_transition(
                     self.conn,

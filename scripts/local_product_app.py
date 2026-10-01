@@ -3959,7 +3959,7 @@ def render_lightweight_tracker(
     return "\n".join(parts)
 
 
-def render_lightweight_tracker_header(records):
+def render_lightweight_tracker_header(records, *, candidate=False):
     active_count = sum(
         1
         for record in records
@@ -3974,12 +3974,13 @@ def render_lightweight_tracker_header(records):
     job_label = "1 job" if len(records) == 1 else f"{len(records)} jobs"
     progress_label = "1 in progress" if active_count == 1 else f"{active_count} in progress"
     reminder_label = "1 reminder" if reminder_count == 1 else f"{reminder_count} reminders"
+    lead = 'Organize saved jobs and applications.' if candidate else 'Track saved jobs, applications, assessments, and follow-ups.'
     return f"""
     <section class="my-jobs-header">
       <p class="eyebrow">Workspace</p>
       <h1>My Jobs</h1>
-      <p class="lead">Track saved jobs, applications, assessments, and follow-ups.</p>
-      <p class="my-jobs-summary"><span>{e(job_label)}</span><span>{e(progress_label)}</span><span>{e(reminder_label)}</span></p>
+      <p class="lead">{lead}</p>
+      <p class="my-jobs-summary"><span>{e(job_label)}</span><span>{e(progress_label)}</span>{'' if candidate else f'<span>{e(reminder_label)}</span>'}</p>
     </section>
     """
 
@@ -5557,15 +5558,16 @@ def tracker_filter_current(view, candidate):
     return ' aria-current="true"' if view == candidate else ""
 
 
-def render_my_jobs_workspace(records, match_run_id, tracker_view="all"):
+def render_my_jobs_workspace(records, match_run_id, tracker_view="all", *, candidate_card=None, candidate_filter=None):
     view = normalize_tracker_view(tracker_view)
     if not records:
-        find_matches_url = "/find-matches?" + urlencode({"run": match_run_id})
+        find_matches_url = "/jobs" if candidate_card else "/find-matches?" + urlencode({"run": match_run_id})
+        empty_label = "Browse jobs" if candidate_card else "Find matches"
         return f"""
         <section id="my-jobs-list" class="my-jobs-workspace">
           <div class="my-jobs-empty">
             <p>You haven&apos;t saved any jobs yet.</p>
-            <a class="open button-primary" href="{e(find_matches_url)}">Find matches</a>
+            <a class="open button-primary" href="{e(find_matches_url)}">{empty_label}</a>
           </div>
         </section>
         """
@@ -5573,19 +5575,19 @@ def render_my_jobs_workspace(records, match_run_id, tracker_view="all"):
     filtered = tracker_records_for_view(records, view)
     hidden_count = sum(1 for record in records if record["visibility"] == "hidden")
     filters = "".join(
-        f'<a class="tracker-filter" href="{e(tracker_filter_href(match_run_id, key))}"'
+        f'<a class="tracker-filter" href="{e(candidate_filter(key) if candidate_filter else tracker_filter_href(match_run_id, key))}"'
         f'{tracker_filter_current(view, key)}>{e(label)}</a>'
-        for key, label in TRACKER_FILTERS
+        for key, label in ((('all','All'),('saved','Saved'),('in_progress','Applied')) if candidate_card else TRACKER_FILTERS)
     )
     hidden_link = ""
     if hidden_count:
         hidden_label = f"Show hidden ({hidden_count})" if view != "hidden" else f"Hidden ({hidden_count})"
         hidden_link = (
-            f'<a class="show-hidden" href="{e(tracker_filter_href(match_run_id, "hidden"))}"'
+            f'<a class="show-hidden" href="{e(candidate_filter("hidden") if candidate_filter else tracker_filter_href(match_run_id, "hidden"))}"'
             f'{tracker_filter_current(view, "hidden")}>{e(hidden_label)}</a>'
         )
     cards = "".join(
-        render_my_jobs_card(record, match_run_id, tracker_view=view)
+        (candidate_card or render_my_jobs_card)(record, match_run_id, tracker_view=view)
         for record in filtered
     )
     if not cards:
@@ -5601,14 +5603,14 @@ def render_my_jobs_workspace(records, match_run_id, tracker_view="all"):
     """
 
 
-def render_my_jobs_card(record, match_run_id, tracker_view="all"):
+def render_my_jobs_card(record, match_run_id, tracker_view="all", *, candidate_controls=None, candidate_detail=None, candidate_allow_original=True):
     status = record["status"]
     card_id = card_id_for_record(record)
     reminder = render_reminder_note(record)
     next_action = record.get("next_action") or ""
     if status == "expired":
         next_action = "This job is no longer available."
-    controls = render_my_jobs_forms(
+    controls = candidate_controls if candidate_controls is not None else render_my_jobs_forms(
         record, match_run_id, card_id, tracker_view=tracker_view
     )
     view_class = (
@@ -5623,12 +5625,12 @@ def render_my_jobs_card(record, match_run_id, tracker_view="all"):
         <h3>{e(record['title'])}</h3>
         <p class="pill card-status js-card-status" aria-label="Current status: {e(readable_status(status))}"><span class="visually-hidden">Current status: </span>{e(readable_status(status))}</p>
         {reminder}
-        {render_workflow_summary(record)}
+        {render_workflow_summary(record).replace('Hidden from your matches', 'Hidden from your catalog') if candidate_controls is not None else render_workflow_summary(record)}
         {f'<p class="muted next-step">{e(next_action)}</p>' if next_action else ''}
       </div>
       <div class="card-actions my-job-actions">
-        <a class="open {view_class}" href="{e(tracker_item_url(record))}">View job details</a>
-        {f'<a href="{e(record["url"])}" target="_blank" rel="noopener noreferrer">Original listing</a>' if safe_job_url(record["url"]) else ''}
+        <a class="open {view_class}" href="{e(candidate_detail or tracker_item_url(record))}">View job details</a>
+        {f'<a href="{e(record["url"])}" target="_blank" rel="noopener noreferrer">Original listing</a>' if candidate_allow_original and safe_job_url(record["url"]) else ''}
         <div class="js-card-controls">{controls}</div>
       </div>
     </article>

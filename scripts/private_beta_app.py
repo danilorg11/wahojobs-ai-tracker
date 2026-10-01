@@ -82,7 +82,7 @@ def prepare_runtime(runtime, *, catalog_configuration=None):
 
 
 def run(configuration_path, *, diagnostics=None, runtime_builder=build_workos_authkit_staging_runtime,
-        public_catalog_configuration_path=None,
+        public_catalog_configuration_path=None, candidate_configuration_path=None,
         server_factory=BetaServer, ready=None):
     configuration = load_workos_authkit_staging_configuration(configuration_path, remote_beta=True)
     runtime = server = None
@@ -97,8 +97,26 @@ def run(configuration_path, *, diagnostics=None, runtime_builder=build_workos_au
             from wahojobs.public_catalog_configuration import load_configuration
             catalog_configuration = load_configuration(public_catalog_configuration_path)
         reader = prepare_runtime(runtime, catalog_configuration=catalog_configuration)
+        candidate, candidate_key = None, None
+        if candidate_configuration_path:
+            from wahojobs.candidate_configuration import build_candidate_integration
+            try:
+                candidate, candidate_key = build_candidate_integration(candidate_configuration_path,runtime,reader)
+                if candidate_key == (catalog_configuration or {}).get('gateway_key'):
+                    raise ValueError('Candidate and catalog keys must be distinct')
+            except Exception:
+                if candidate is not None:
+                    candidate.close()
+                candidate, candidate_key = None, None
+                print('candidate_account_unavailable', file=sys.stderr, flush=True)
+        if candidate is not None:
+            reader.candidate_enabled = candidate.public_controls_enabled
+            with reader._lock:
+                reader._cache.clear()
+                reader._cache_bytes = 0
         handler = make_remote_handler(runtime, proxy_secret, diagnostics=diagnostics,
-            public_catalog=reader, catalog_key=(catalog_configuration or {}).get('gateway_key'))
+            public_catalog=reader, catalog_key=(catalog_configuration or {}).get('gateway_key'),
+            candidate=candidate,candidate_key=candidate_key)
         server = server_factory(runtime.bind_address, handler)
         # signal handlers run in the serve_forever thread; shutdown must run in
         # another thread. The server then joins all request workers before close.
@@ -112,6 +130,8 @@ def run(configuration_path, *, diagnostics=None, runtime_builder=build_workos_au
         server.serve_forever(poll_interval=0.2)
     finally:
         configuration.clear_secrets()
+        if 'candidate' in locals() and candidate is not None:
+            candidate.close()
         failed = False
         if server:
             try:
@@ -137,6 +157,7 @@ def main(argv=None):
     parser.add_argument('--config', required=True)
     parser.add_argument('--logs', required=True, help='Existing private parent for bounded per-run logs.')
     parser.add_argument('--public-catalog-config', help='Explicit optional protected public-reader configuration.')
+    parser.add_argument('--candidate-config', help='Explicit optional protected Production candidate-only configuration.')
     args = parser.parse_args(argv)
     try:
         from wahojobs.request_diagnostics import diagnostic_log
@@ -153,7 +174,8 @@ def main(argv=None):
         directory = parent / ('run-' + uuid.uuid4().hex)
         directory.mkdir(mode=0o700)
         with diagnostic_log(str(directory)) as diagnostics:
-            run(args.config, diagnostics=diagnostics, public_catalog_configuration_path=args.public_catalog_config)
+            run(args.config, diagnostics=diagnostics, public_catalog_configuration_path=args.public_catalog_config,
+                candidate_configuration_path=args.candidate_config)
         print('private_beta_stopped', flush=True)
         return 0
     except WorkOSAuthKitStagingError as exc:

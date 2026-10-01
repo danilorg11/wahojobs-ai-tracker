@@ -45,6 +45,7 @@ PROVIDER = "workos_authkit"
 AUTHENTICATION_METHOD = "MagicAuth"
 METADATA_VERSION = "workos_authkit_magic_auth_v1"
 CALLBACK_PATH = "/auth/workos/callback"
+CANDIDATE_CALLBACK_PATH = "/candidate/auth/callback"
 AUTHORIZATION_ENDPOINT = "https://api.workos.com/user_management/authorize"
 EXCHANGE_TIMEOUT_SECONDS = 5.0
 EXCHANGE_MAX_RETRIES = 0
@@ -97,6 +98,7 @@ class WorkOSAuthKitConfiguration:
     environment_namespace: str
     transaction_ttl: timedelta = DEFAULT_TRANSACTION_TTL
     max_transactions: int = DEFAULT_MAX_TRANSACTIONS
+    public_candidate_registration: bool = False
 
     def __post_init__(self):
         parsed = None
@@ -113,7 +115,11 @@ class WorkOSAuthKitConfiguration:
             or not parsed.netloc
             or parsed.username is not None
             or parsed.password is not None
-            or parsed.path != CALLBACK_PATH
+            or type(self.public_candidate_registration) is not bool
+            or parsed.path != (CANDIDATE_CALLBACK_PATH if self.public_candidate_registration else CALLBACK_PATH)
+            or self.public_candidate_registration and (
+                self.environment_namespace != "production"
+                or parsed.netloc != "www.wahojobs.com")
             or parsed.query
             or parsed.fragment
             or type(self.transaction_ttl) is not timedelta
@@ -486,7 +492,7 @@ class WorkOSAuthKitGateway:
         proof = None
         try:
             self._require_connection(connection)
-            callback = _validated_callback(callback_target)
+            callback = _validated_callback(callback_target, callback_path=urlsplit(self.redirect_uri).path)
             now = _canonical_now(self._clock)
             transaction = self._claim_transaction(
                 browser_transaction_id,
@@ -510,10 +516,13 @@ class WorkOSAuthKitGateway:
             if completed_at >= transaction.expires_at:
                 raise _AuthenticationDenied('callback_completion_expired')
             values = _validated_authentication(authentication)
+            subject = values["user_id"]
+            if self._configuration.public_candidate_registration:
+                subject = "production:" + self._configuration.client_id + ":" + subject
             normalized_email = normalize_email(values["email"])
             verified_identity = (
                 self._identity_verifier.from_workos_authkit_authentication(
-                    provider_subject=values["user_id"],
+                    provider_subject=subject,
                     verified_email=normalized_email,
                     authenticated_at=completed_at,
                     metadata_version=METADATA_VERSION,
@@ -522,33 +531,36 @@ class WorkOSAuthKitGateway:
             try:
                 resolved = _resolve_durable_identity(
                     connection,
-                    values["user_id"],
+                    subject,
                     completed_at,
                 )
             except _IdentityMissing:
-                if transaction.invitation is None:
-                    raise _AuthenticationDenied('callback_durable_identity_missing_uninvited') from None
-                invitation_text = bytes(transaction.invitation).decode(
-                    "ascii",
-                    "strict",
-                )
-                created = self._account_service.create_invited_user_for_workos_authkit(
-                    connection,
-                    identity=verified_identity,
-                    invitation_token=invitation_text,
-                    invitation_lookup_key=bytes(self._invitation_key),
-                    idempotency_key=transaction.request_key,
-                    now=completed_at,
-                )
-                invitation_text = None
-                if type(created) is not CreatedUser:
-                    raise _AuthenticationDenied('callback_invitation_admission_rejected')
-                created = None
-                resolved = _resolve_durable_identity(
-                    connection,
-                    values["user_id"],
-                    completed_at,
-                )
+                if self._configuration.public_candidate_registration:
+                    self._account_service.create_public_workos_candidate(
+                        connection, identity=verified_identity,
+                        idempotency_key=transaction.request_key, now=completed_at)
+                    resolved = _resolve_durable_identity(connection, subject, completed_at)
+                else:
+                    if transaction.invitation is None:
+                        raise _AuthenticationDenied('callback_durable_identity_missing_uninvited') from None
+                    invitation_text = bytes(transaction.invitation).decode(
+                        "ascii", "strict",
+                    )
+                    created = self._account_service.create_invited_user_for_workos_authkit(
+                        connection,
+                        identity=verified_identity,
+                        invitation_token=invitation_text,
+                        invitation_lookup_key=bytes(self._invitation_key),
+                        idempotency_key=transaction.request_key,
+                        now=completed_at,
+                    )
+                    invitation_text = None
+                    if type(created) is not CreatedUser:
+                        raise _AuthenticationDenied('callback_invitation_admission_rejected')
+                    created = None
+                    resolved = _resolve_durable_identity(
+                        connection, subject, completed_at,
+                    )
             if connection.in_transaction:
                 raise WorkOSAuthKitUnavailable()
             ownership = ensure_account_native_principal(
@@ -774,7 +786,7 @@ def _resolve_durable_identity(connection, subject, now):
     }
 
 
-def _validated_callback(target):
+def _validated_callback(target, *, callback_path=CALLBACK_PATH):
     if type(target) is not str or not 1 <= len(target.encode("utf-8")) <= 8192:
         raise _AuthenticationDenied('callback_target_rejected')
     if _INVALID_PERCENT_ESCAPE.search(target) is not None:
@@ -786,7 +798,7 @@ def _validated_callback(target):
     if (
         parsed.scheme
         or parsed.netloc
-        or parsed.path != CALLBACK_PATH
+        or parsed.path != callback_path
         or parsed.fragment
         or not parsed.query
     ):

@@ -115,7 +115,7 @@ def perform_pipeline_action(
     action: str,
     owner_profile_id: str,
     idempotency_key: str,
-    match_run_id: str,
+    match_run_id: str | None = None,
     expected_version=EXPECTED_VERSION_ABSENT,
     pipeline_item_id: str | None = None,
     source: str | None = None,
@@ -140,13 +140,21 @@ def perform_pipeline_action(
         from wahojobs.candidate_status_correction import correct_applied
         return correct_applied(conn, action=action, pipeline_item_id=pipeline_item_id, owner_profile_id=owner_profile_id,
             expected_version=expected_version, idempotency_key=idempotency_key)
+    if action in {'unsave', 'undo_discovery'}:
+        from wahojobs.discovery_actions import restore_discovery
+        return restore_discovery(conn, action=action, pipeline_item_id=pipeline_item_id,
+            owner_profile_id=owner_profile_id, expected_version=expected_version,
+            idempotency_key=idempotency_key)
     item_identity_supplied = pipeline_item_id is not None
     expected_version_was_supplied = expected_version is not EXPECTED_VERSION_ABSENT
     action = str(action or "").strip()
     if action not in SUPPORTED_ACTIONS:
         raise PipelineActionValidationError(f"Unsupported pipeline action: {action}")
     owner_profile_id = _required_text(owner_profile_id, "owner_profile_id")
-    match_run_id = _required_text(match_run_id, "match_run_id")
+    if match_run_id is not None:
+        match_run_id = _required_text(match_run_id, "match_run_id")
+    elif actor_source != "candidate_catalog":
+        raise PipelineActionValidationError("A catalog action requires its authorized candidate boundary.")
     idempotency_key = _required_text(idempotency_key, "idempotency_key")
     if len(idempotency_key) < 16:
         raise PipelineActionValidationError(
@@ -276,7 +284,7 @@ def perform_pipeline_action(
             )
             initial_metadata = {
                 "schema_version": ORCHESTRATION_METADATA_VERSION,
-                "metadata_schema": transition_metadata.INITIALIZATION_SCHEMA,
+                "metadata_schema": transition_metadata.DISCOVERY_INITIALIZATION_SCHEMA,
                 "transition_class": "user_initialization",
                 "initialization_kind": "user_created",
                 "creation_origin": "product_action",
@@ -292,7 +300,7 @@ def perform_pipeline_action(
                 conn,
                 pipeline_item_id=pipeline_item_id,
                 owner_profile_id=owner_profile_id,
-                workflow_status="saved",
+                workflow_status="recommended",
                 workflow_status_provenance="known",
                 visibility="visible",
                 reminder_at=None,
@@ -886,8 +894,8 @@ def _insert_pipeline_item(conn, *, pipeline_item_id, profile, opportunity, occur
           status_date, user_priority, reminder_date, notes, last_user_action,
           is_sample, created_at, updated_at
         )
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'saved', ?, 'medium', '', '',
-                'Saved from local UI', 0, ?, ?)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'recommended', ?, 'medium', '', '',
+                'Discovery choice', 0, ?, ?)
         """,
         (
             pipeline_item_id,

@@ -685,6 +685,7 @@ class PipelineReconciliationTests(unittest.TestCase):
             )
 
         saved = create_item("save", "saved-as-applied")
+        saved = repeat(saved, "save", "saved-as-applied")
         relabel(saved, "applied")
 
         applied = create_item("applied", "applied-as-started")
@@ -707,6 +708,7 @@ class PipelineReconciliationTests(unittest.TestCase):
         relabel(reminder_repeat, "remind_later", reminder_at="2026-10-01T12:00:00+00:00")
 
         visible = create_item("save", "visible-as-hidden")
+        visible = repeat(visible, "save", "visible-as-hidden")
         relabel(visible, "not_interested")
 
         visible_applied = create_item("applied", "applied-as-show")
@@ -1015,6 +1017,12 @@ class PipelineReconciliationTests(unittest.TestCase):
         self.replace_transition_metadata(started.transition["transition_id"], metadata)
 
         noop = create_save("noop")
+        noop = pipeline_actions.perform_pipeline_action(
+            self.conn, action="save", owner_profile_id="profile-a",
+            idempotency_key="human-reason-noop-repeat-000001",
+            expected_version=noop.state["version"], match_run_id="run-reconcile",
+            pipeline_item_id=noop.pipeline_item["pipeline_item_id"],
+        )
         noop_metadata = copy.deepcopy(noop.transition["metadata"])
         product = noop_metadata["pipeline_action"]
         request = product["operation_request"]
@@ -1325,7 +1333,15 @@ class PipelineReconciliationTests(unittest.TestCase):
         self.assertTrue(report["checks"]["cyclic_transition_references"])
 
     def test_transition_class_counts_separate_baselines_initializations_and_noops(self):
-        self.create("save")
+        saved = self.create("save")
+        report = pipeline_reconciliation.reconcile_pipeline_state(self.conn)
+        self.assertEqual(report["transition_classes"]["operation_noops"], 0)
+        pipeline_actions.perform_pipeline_action(
+            self.conn, action="save", owner_profile_id="profile-a",
+            idempotency_key="class-count-noop-repeat-000001",
+            expected_version=saved.state["version"], match_run_id="run-reconcile",
+            pipeline_item_id=saved.pipeline_item["pipeline_item_id"],
+        )
         report = pipeline_reconciliation.reconcile_pipeline_state(self.conn)
         self.assertEqual(
             report["transition_classes"],

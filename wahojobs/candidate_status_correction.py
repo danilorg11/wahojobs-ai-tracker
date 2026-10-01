@@ -33,7 +33,8 @@ def correct_applied(conn, *, action, pipeline_item_id, owner_profile_id,
             # application action, without guessing that its previous state was Saved.
             history = state.list_transition_history(conn, pipeline_item_id, owner_profile_id)
             effective = [t for t in history if t['affected_dimension'] in {'workflow', 'correction', 'undo'}
-                         and t['before_state'] != t['after_state']]
+                         and any((t['before_state'] or {}).get(k) != t['after_state'].get(k)
+                                 for k in ('workflow_status', 'workflow_status_provenance'))]
             original = effective[-1] if effective else None
             if (original is None or original['action_name'] not in {'product_applied', 'resolve_unknown_workflow_applied'}
                     or not original['before_state'] or original['after_state']['workflow_status'] != 'applied'):

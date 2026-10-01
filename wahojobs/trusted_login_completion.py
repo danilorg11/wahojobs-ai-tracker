@@ -53,7 +53,7 @@ from wahojobs.ownership import validate_environment_namespace
 
 _ASSURANCE_POLICY = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$")
 _TRUSTED_LOGIN_ENVIRONMENTS = frozenset(
-    {"development", "test", "private_beta"}
+    {"development", "test", "private_beta", "production"}
 )
 _ASSERTION_ISSUANCE_CAPABILITY = object()
 _ASSERTION_SERVICE_CAPABILITY = object()
@@ -716,6 +716,10 @@ def create_trusted_login_completion_policy(
     absolute_ttl: timedelta,
 ) -> TrustedLoginCompletionPolicy:
     """Issue the fixed Google trusted-login policy for runtime composition."""
+
+    if environment_namespace == 'production':
+        # The candidate rollout authorizes only the separate WorkOS composition.
+        raise _configuration_error()
 
     session_policy = TrustedLoginSessionPolicy(
         environment_namespace=environment_namespace,

@@ -199,11 +199,12 @@ def preparation_metadata(connection):
 
 class PublicCatalogReader:
     def __init__(self, jobs, *, metadata=None, generation=None, public_origin=PUBLIC_ORIGIN,
-                 indexable=False, clock=None, available=lambda: None):
+                 indexable=False, clock=None, available=lambda: None, candidate_enabled=False):
         if public_origin != PUBLIC_ORIGIN:
             raise ValueError('invalid_public_catalog_origin')
         self.public_origin = public_origin
         self.indexable = indexable is True
+        self.candidate_enabled = candidate_enabled is True
         self._clock = clock or (lambda: datetime.now(timezone.utc))
         self._available = available
         self._prepared, self.decisions = prepare_publication(jobs)
@@ -271,6 +272,12 @@ class PublicCatalogReader:
         return dict(generation=self.generation, providers=providers)
 
     def _response(self, status, body, *, content_type='text/html; charset=utf-8', indexable=False):
+        if self.candidate_enabled and content_type.startswith('text/html'):
+            from wahojobs.public_candidate_controls import CSS, SCRIPT
+            body = body.decode('utf-8') if type(body) is bytes else body
+            body = body.replace('</nav>', "<a href='/my-jobs'>My Jobs</a></nav>", 1)
+            body = body.replace('</head>', '<style>'+CSS+'</style></head>',1)
+            body = body.replace('</body>', SCRIPT+'</body>',1)
         body = body.encode('utf-8') if isinstance(body, str) else body
         if len(body) > MAX_RESPONSE_BYTES:
             raise ValueError('public_response_too_large')
@@ -279,7 +286,7 @@ class PublicCatalogReader:
             ('Cache-Control', 'no-store'), ('X-Robots-Tag', robots), (ROBOTS_HEADER, robots),
             ('X-Content-Type-Options', 'nosniff'), ('Referrer-Policy', 'strict-origin-when-cross-origin'),
             ('Content-Security-Policy', "default-src 'none'; style-src 'unsafe-inline'; "
-                + brand.ASSET_CSP + "script-src 'unsafe-inline'; form-action 'self'; base-uri 'none'; frame-ancestors 'none'"))
+                + brand.ASSET_CSP + "script-src 'self' 'unsafe-inline'; form-action 'self'; base-uri 'none'; frame-ancestors 'none'"))
         if status == 503:
             headers += (('Retry-After', '60'),)
         return PublicCatalogResponse(status, body, headers)
@@ -337,7 +344,8 @@ class PublicCatalogReader:
             page = catalog.build_catalog(self._jobs, params)
             if page['requested_page'] != page['page']:
                 return self._message(404, 'Page not found', 'This results page does not exist.')
-            html = catalog.render_public_jobs_page(page, public_origin=self.public_origin, navigation=navigation, public_reader=True)
+            html = catalog.render_public_jobs_page(page, public_origin=self.public_origin, navigation=navigation, public_reader=True,
+                candidate_controls=self.candidate_enabled)
             return self._response(200, html, indexable=not page['filters'])
         if parsed.path == '/jobs/sitemap.xml':
             if parsed.query:
@@ -382,4 +390,8 @@ class PublicCatalogReader:
             return self._message(404, 'Opportunity unavailable', 'This version is not currently available.')
         html = detail.render_public_job_page(job, public_origin=self.public_origin,
             navigation=navigation, catalog_return_to=back, public_reader=True)
+        if self.candidate_enabled:
+            from wahojobs.public_candidate_controls import controls
+            context = parsed.path + ('?' + parsed.query if parsed.query else '')
+            html = html.replace("<div class='hero-actions'>",controls(job,context)+"<div class='hero-actions'>",1)
         return self._response(200, html, indexable=not parsed.query and job['_public_state'] == 'indexable')
