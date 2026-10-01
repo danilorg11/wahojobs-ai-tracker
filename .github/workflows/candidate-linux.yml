@@ -24,13 +24,34 @@ jobs:
       - uses: actions/setup-python@v6
         with:
           python-version: '3.12'
-      - name: Install the reused provider SDK and HTTP dependency
-        run: python -m pip install workos==10.2.0 requests==2.32.5
+      - name: Install the existing tested dependencies
+        run: python -m pip install workos==10.2.0 requests==2.34.2 joserfc==1.7.4
       - name: Exercise real Linux permissions and native recovery on fixtures
         run: |
           sudo useradd --system --no-create-home --shell /usr/sbin/nologin wahojobs-beta
-          sudo env PYTHONDONTWRITEBYTECODE=1 "$(command -v python)" -B -m unittest \
-            tests.test_candidate_account tests.test_candidate_configuration \
-            tests.test_native_inventory_recovery tests.test_daily_inventory \
-            tests.test_staged_daily_inventory tests.test_daily_packaged_backup \
-            tests.test_cold_inventory_lifecycle -v
+          sudo env PYTHONDONTWRITEBYTECODE=1 CANDIDATE_CI_SOURCE="$GITHUB_WORKSPACE" "$(command -v python)" -B - <<'PY'
+          import os
+          from pathlib import Path
+          import shutil
+          import subprocess
+          import sys
+          import tempfile
+
+          modules = [
+              'tests.test_candidate_account', 'tests.test_candidate_configuration',
+              'tests.test_native_inventory_recovery', 'tests.test_daily_inventory',
+              'tests.test_staged_daily_inventory', 'tests.test_daily_packaged_backup',
+              'tests.test_cold_inventory_lifecycle',
+          ]
+          # /home/runner is private. The multi-UID fixture needs readable source;
+          # move only checked-out code to a disposable, traversable test root.
+          with tempfile.TemporaryDirectory(prefix='wahojobs-candidate-ci-', dir='/tmp') as root:
+              Path(root).chmod(0o755)
+              source = Path(root) / 'source'
+              shutil.copytree(os.environ['CANDIDATE_CI_SOURCE'], source,
+                  ignore=shutil.ignore_patterns('.git', '__pycache__', '*.pyc'))
+              source.chmod(0o755)
+              result = subprocess.run([sys.executable, '-B', '-m', 'unittest', *modules, '-v'],
+                  cwd=source, check=False)
+              raise SystemExit(result.returncode)
+          PY
