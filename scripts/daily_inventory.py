@@ -97,6 +97,20 @@ def public_catalog_credential_selected(*, require_effective=True):
     return True
 
 
+def candidate_credential_selected(*, require_effective=True):
+    from wahojobs.candidate_configuration import (
+        SOURCE_CONFIGURATION_PATH, OPERATING_CONFIGURATION_PATH, load_configuration)
+    source=Path(SOURCE_CONFIGURATION_PATH)
+    if not source.exists():return False
+    document=load_configuration(str(source));document.clear()
+    if require_effective:
+        effective=Path(OPERATING_CONFIGURATION_PATH)
+        document=load_configuration(str(effective));document.clear()
+        if source.read_bytes()!=effective.read_bytes():
+            raise ValueError('candidate_effective_mismatch')
+    return True
+
+
 def verify_release_configuration(config, *, require_effective=True):
     """Shared pins also apply to recovery when the beta process is stopped."""
     import socket
@@ -120,6 +134,9 @@ def verify_release_configuration(config, *, require_effective=True):
     if public_catalog_credential_selected(require_effective=require_effective):
         from wahojobs.public_catalog_configuration import SOURCE_CONFIGURATION_PATH
         expected.add(('public-catalog-v1.json',SOURCE_CONFIGURATION_PATH))
+    if candidate_credential_selected(require_effective=require_effective):
+        from wahojobs.candidate_configuration import SOURCE_CONFIGURATION_PATH
+        expected.add(('candidate-v1.json',SOURCE_CONFIGURATION_PATH))
     if (credential.get('type')!='a(ss)' or type(credential.get('data')) is not list
             or len(credential['data'])!=len(expected)
             or any(type(item) is not list or len(item)!=2 or
@@ -135,12 +152,17 @@ def verify_beta_process_command(command):
         '--config','/run/wahojobs-beta/runtime.json','--logs','/var/log/wahojobs-beta']
     if command==expected:return
     from wahojobs.public_catalog_configuration import OPERATING_CONFIGURATION_PATH,load_configuration
-    if command!=expected+['--public-catalog-config',OPERATING_CONFIGURATION_PATH]:
+    catalog_command=expected+['--public-catalog-config',OPERATING_CONFIGURATION_PATH]
+    from wahojobs.candidate_configuration import OPERATING_CONFIGURATION_PATH as CANDIDATE_PATH, load_configuration as load_candidate
+    candidate_command=catalog_command+['--candidate-config',CANDIDATE_PATH]
+    if command not in (catalog_command,candidate_command):
         raise ValueError('beta_process_mismatch')
     # The optional reader must still use the protected, fixed operational file.
     # Never admit arbitrary flags, paths, credentials or a different beta runtime.
     document=load_configuration(OPERATING_CONFIGURATION_PATH)
     document.clear()
+    if command==candidate_command:
+        document=load_candidate(CANDIDATE_PATH);document.clear()
 
 
 def verify_runtime(config):

@@ -1,6 +1,8 @@
 """Candidate-only production composition with synthetic, offline provider identities."""
 from datetime import datetime, timedelta
 from contextlib import closing
+from contextlib import contextmanager
+import gc
 from io import BytesIO
 import json
 from pathlib import Path
@@ -39,6 +41,7 @@ class CandidateAccountTests(unittest.TestCase):
         self.boundary = FakeWorkOSBoundary()
         self.integration = self.make_integration()
         self.addCleanup(lambda:self.integration.close())
+        self.addCleanup(gc.collect)
         self.cookies = {}
         self.target = '/jobs/opportunity-9002?'+urlencode({'variant':'9003','return_to':'/jobs?location=Brazil&page=2'})
 
@@ -176,8 +179,93 @@ class CandidateAccountTests(unittest.TestCase):
         self.assertEqual(before,self.states()['states']['9002'])
         self.assertEqual(self.action('applied',version=0)[0][0],409)
         self.assertEqual(self.action('applied')[0][0],303)
+        self.assertEqual(self.request('POST','/candidate/intent',form)[0],303)
         self.assertEqual(self.action('save')[0][0],409)
         self.assertEqual(self.states()['states']['9002']['workflow_status'],'applied')
+
+    def test_reauthentication_resumes_explicit_applied_against_existing_owned_saved_version(self):
+        self.login()
+        self.action('save')
+        self.request('POST','/candidate/logout',{'csrf':self.cookies[CSRF]})
+        self.assertEqual(self.action('applied')[0][0],303)
+        self.login()
+        self.assertEqual(self.request('GET','/candidate/resume')[0],200)
+        self.assertEqual(self.states()['states']['9002']['workflow_status'],'saved')
+        self.assertEqual(self.request('POST','/candidate/resume',{'csrf':self.cookies[CSRF]})[0],303)
+        self.assertEqual(self.states()['states']['9002']['workflow_status'],'applied')
+
+    def test_renamed_production_token_cannot_enter_any_private_beta_route(self):
+        self.login()
+        @contextmanager
+        def read_only():
+            with closing(connect(self.path)) as db:
+                db.execute('PRAGMA query_only=ON')
+                yield db
+        runtime=Mock()
+        runtime._connections.read_only_connection_provider=read_only
+        remote=RemoteBetaIntegration(runtime,clock=self.clock)
+        headers=(('Host','beta.wahojobs.com'),('Cookie','wahojobs_session='+self.cookies[SESSION]))
+        for path in ['/account/profile','/find-matches','/tracker','/logout','/action']:
+            response=remote.handle('GET',path,headers)
+            self.assertEqual(response.status,303)
+            self.assertEqual(dict(response.headers)['Location'],'/login')
+        runtime.browser_integration.handle.assert_not_called()
+
+    def test_changed_source_identity_does_not_rebind_history_or_create_canonical_duplicate(self):
+        self.login()
+        self.action('save')
+        with closing(connect(self.path)) as db:
+            db.execute("UPDATE jobs SET source_hash='changed-persisted-source-identity' WHERE id=9003")
+            db.commit()
+            self.reader._prepared,_ = __import__('wahojobs.public_catalog_reader',fromlist=['prepare_publication']).prepare_publication(
+                catalog.load_public_jobs(db,now=self.clock()))
+            self.reader._refresh(self.clock())
+        for action in ['save','applied','not_interested']:
+            self.assertEqual(self.action(action,version=0)[0][0],409)
+        self.assertEqual(self.action('applied')[0][0],409)
+        self.assertEqual(self.count('user_pipeline_items'),1)
+        status,body,_=self.request('GET','/my-jobs')
+        self.assertEqual(status,200)
+        self.assertNotIn(b'>Original listing</a>',body)
+        self.assertEqual(self.action('not_interested')[0][0],303)
+        self.assertEqual(self.action('show_again')[0][0],303)
+        self.assertEqual(self.states()['states']['9002']['workflow_status'],'saved')
+
+    def test_cancelled_cookie_delivery_revokes_undelivered_session(self):
+        self.request('GET','/candidate/login')
+        status,_,headers=self.request('POST','/candidate/auth/start',{'csrf':self.cookies[LOGIN_CSRF]})
+        state=parse_qs(urlsplit(headers['Location']).query)['state'][0]
+        callback='/candidate/auth/callback?'+urlencode({'code':'synthetic_auth_code_123','state':state})
+        self.assertEqual(self.request('GET',callback,deliver=False)[0],303)
+        self.assertNotIn(SESSION,self.cookies)
+        with closing(connect(self.path)) as db:
+            self.assertEqual(db.execute('SELECT COUNT(*) FROM account_sessions WHERE revoked_at IS NULL').fetchone()[0],0)
+        self.assertEqual(self.count('user_pipeline_items'),0)
+
+    def test_unverified_or_non_magic_auth_provider_proof_cannot_register(self):
+        for verified,method in [(False,'MagicAuth'),(True,'Password')]:
+            self.cookies={}
+            self.boundary.verified=verified
+            self.boundary.method=method
+            self.request('GET','/candidate/login')
+            status,_,headers=self.request('POST','/candidate/auth/start',{'csrf':self.cookies[LOGIN_CSRF]})
+            state=parse_qs(urlsplit(headers['Location']).query)['state'][0]
+            self.assertEqual(self.request('GET','/candidate/auth/callback?'+urlencode({'code':'synthetic_auth_code_123','state':state}))[0],403)
+        self.assertEqual(self.count('users'),0)
+
+    def test_production_client_namespace_and_session_expiry_cannot_inherit_jobs(self):
+        self.login()
+        self.action('save')
+        self.integration.close()
+        self.integration=self.make_integration(client='client_other0123456789abcd')
+        self.assertFalse(self.states()['authenticated'])
+        self.cookies={}
+        self.login()
+        self.assertEqual(self.states()['states'],{})
+        self.assertEqual(self.count('users'),2)
+        self.clock.advance(timedelta(hours=2))
+        self.assertFalse(self.states()['authenticated'])
+        self.assertEqual(self.count('user_pipeline_items'),1)
 
     def test_two_candidates_same_email_never_link_and_foreign_fields_are_rejected(self):
         self.login()
@@ -234,6 +322,8 @@ class CandidateAccountTests(unittest.TestCase):
         self.login()
         self.action('save')
         before=self.states()['states']['9002']
+        from wahojobs.daily_inventory import protected_domains
+        protected_before=protected_domains(self.path)
         self.integration.close()
         self.integration=self.make_integration()
         self.assertEqual(before,self.states()['states']['9002'])
@@ -243,6 +333,7 @@ class CandidateAccountTests(unittest.TestCase):
             db.commit()
             self.reader._prepared=()
             self.reader._refresh(self.clock())
+        self.assertEqual(protected_before,protected_domains(self.path))
         status,body,_=self.request('GET','/my-jobs')
         self.assertEqual(status,200,body)
         self.assertIn(b'Availability unconfirmed',body)
@@ -265,13 +356,18 @@ class CandidateAccountTests(unittest.TestCase):
             self.assertIn(remote.handle('POST',path,headers,BytesIO(b'bad')).status,(404,405))
 
     def test_no_matching_scoring_or_collection_on_candidate_journey(self):
-        with patch('wahojobs.authenticated_profile_matches.AuthenticatedProfileMatchesService.find_matches',
-                   side_effect=AssertionError('Matching invoked'),create=True) as matches:
+        with patch('wahojobs.authenticated_profile_matches.AuthenticatedProfileMatchesService.resolve',
+                   side_effect=AssertionError('Matching invoked')) as matches, patch(
+                   'scripts.profile_to_matches_preview.build_preview_context_from_canonical_rows',
+                   side_effect=AssertionError('Scoring invoked')) as scoring, patch(
+                   'socket.socket.connect',side_effect=AssertionError('Unexpected network/model/source call')) as network:
             self.login()
             for name in ['save','applied','undo_applied','not_interested','show_again','unsave']:
                 self.assertEqual(self.action(name)[0][0],303)
             self.assertEqual(self.request('GET','/my-jobs')[0],200)
             matches.assert_not_called()
+            scoring.assert_not_called()
+            network.assert_not_called()
         self.assertEqual(self.count('match_runs'),0)
 
 

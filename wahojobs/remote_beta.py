@@ -146,12 +146,15 @@ class RemoteBetaIntegration:
         if path not in _PUBLIC:
             from wahojobs.browser_session_authentication import DurableBrowserSessionAuthenticationGateway
             from wahojobs.persistent_profiles_application import BrowserRequestContext
+            from wahojobs.persistent_profile_read_authorization import DurablePersistentProfileReadAuthorizationGateway
             gateway = DurableBrowserSessionAuthenticationGateway(
                 trusted_environment_namespace='private_beta', clock=self.clock)
             with self.runtime._connections.read_only_connection_provider() as connection:
                 actor = gateway.authenticate_browser_request(connection,
                     BrowserRequestContext('GET', '/account/profile', headers))
-            if actor is None:
+                authorization = (DurablePersistentProfileReadAuthorizationGateway().authorize_persistent_profile_read(
+                    connection,authenticated_actor=actor) if actor else None)
+            if actor is None or authorization is None or authorization.state != 'authorized':
                 return response(303, 'Sign in with your invitation.\n', location='/login')
         result = self.runtime.browser_integration.handle(method, target, headers, body_stream)
         if path == '/login' and method == 'GET' and result.status == 200:
@@ -168,6 +171,9 @@ def make_remote_handler(runtime, proxy_secret, *, diagnostics=None, clock=None,
     if type(proxy_secret) is not str or not re.fullmatch('[0-9a-f]{64}', proxy_secret):
         raise WorkOSAuthKitStagingError('configuration_invalid')
     if public_catalog is not None and (type(catalog_key) is not str or not re.fullmatch('[0-9a-f]{64}', catalog_key)):
+        raise WorkOSAuthKitStagingError('configuration_invalid')
+    if candidate is not None and (public_catalog is None or type(candidate_key) is not str
+            or not re.fullmatch('[0-9a-f]{64}',candidate_key) or candidate_key==catalog_key):
         raise WorkOSAuthKitStagingError('configuration_invalid')
     base = make_durable_product_browser_handler(RemoteBetaIntegration(runtime, clock=clock,
         public_catalog=public_catalog, catalog_key=catalog_key, candidate=candidate, candidate_key=candidate_key), diagnostics=diagnostics)

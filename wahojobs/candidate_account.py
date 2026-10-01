@@ -20,7 +20,7 @@ from wahojobs.browser_session_authentication import DurableBrowserSessionAuthent
 from wahojobs.browser_session_lifecycle import create_request_scoped_session_secret_vault, discard_request_scoped_session_secret_vault
 from wahojobs.persistent_profiles_application import BrowserRequestContext
 from wahojobs.pipeline_records import list_pipeline_records
-from wahojobs.pipeline_postings import load_posting
+from wahojobs.pipeline_postings import load_posting, item_id
 from wahojobs.trusted_login_completion import prepare_session_delivery
 from wahojobs.workos_authkit_browser import WorkOSAuthKitBrowserResponse, _delivery_cookies
 
@@ -215,6 +215,9 @@ class CandidateAccountIntegration:
         if posting is None or posting['canonical_opportunity_id'] != canonical:
             raise ValueError('This opportunity version is unavailable.')
         if current:
+            active = db.execute('SELECT is_active FROM canonical_opportunities WHERE id=?',(canonical,)).fetchone()
+            if not posting['is_active'] or active is None or not active[0]:
+                raise ValueError('This opportunity is no longer available.')
             with self.reader._lock:
                 now = self.clock()
                 if now < self.reader._valid_from:
@@ -222,7 +225,7 @@ class CandidateAccountIntegration:
                 if now >= self.reader._deadline:
                     self.reader._refresh(now)
                 group = self.reader._by_id.get(canonical)
-                if group is None or not any(v['job_id']==variant for v in group['_catalog_variants']):
+                if group is None or not any(v['job_id']==variant and v.get('source_hash')==posting['source_hash'] for v in group['_catalog_variants']):
                     raise ValueError('This version is unavailable or needs verification. Your history is retained.')
         return posting
 
@@ -259,6 +262,8 @@ class CandidateAccountIntegration:
         user, owner = actor
         action = intent['action']
         posting = self._posting(db,intent['canonical'],intent['variant']) if action in {'save','applied'} else None
+        if intent['version']==0 and action=='not_interested':
+            posting = self._posting(db,intent['canonical'],intent['variant'])
         if posting and (posting['company_id'],posting['source_hash']) != intent['source_identity']:
             raise ValueError('This source identity changed. Refresh before tracking.')
         with pipeline_state.atomic(db):
@@ -278,7 +283,8 @@ class CandidateAccountIntegration:
                 # a sibling must not replace the variant the candidate applied to.
                 linked_id = re.fullmatch(r'pipeline::posting-v1::([1-9][0-9]*)::[0-9a-f]{64}',record.pipeline_item['pipeline_item_id'])
                 if (linked_id is None or int(linked_id[1]) != intent['variant'] or posting and (
-                        record.opportunity['external_id'] != posting['external_id'] or record.opportunity['url'] != (posting['url'] or ''))):
+                        item_id(owner,posting) != record.pipeline_item['pipeline_item_id']
+                        or record.opportunity['external_id'] != posting['external_id'] or record.opportunity['url'] != (posting['url'] or ''))):
                     raise ValueError('This opportunity is tracked through another version. Open its version in My Jobs.')
                 if intent['version'] != 0:
                     common['pipeline_item_id'] = record.pipeline_item['pipeline_item_id']
@@ -390,6 +396,9 @@ class CandidateAccountIntegration:
             if actor is None:
                 if intent['action'] not in {'save','applied','not_interested'}:
                     raise PermissionError('Sign in to change existing tracking')
+                if intent['version']!=0:
+                    raise ValueError('Refresh before signing in')
+                intent['unbound'] = True
                 token = self._new_context(intent['return_to'],intent)
                 return reply(303,location='/candidate/login',extra=(('Set-Cookie',set_cookie(CONTEXT,token)),))
             self._mutate(db,actor,intent)
@@ -411,6 +420,13 @@ class CandidateAccountIntegration:
             context = self._context(headers)
             if context is None or context.consumed or context.account != actor[0] or context.intent is None:
                 raise ValueError('This one-use action expired or was already used. Check My Jobs.')
+            if context.intent.pop('unbound',False):
+                # A pre-login browser has no private record version. Bind it
+                # once to the verified account when its delivered session reads
+                # the continuation. This changes only the in-memory context.
+                stored = self._record(db,actor[1],context.intent['canonical'])
+                if stored is not None:
+                    context.intent['version'] = stored.normalized_state['version']
             if method == 'GET':
                 csrf = cookie(headers,CSRF)
                 return reply(200,page('Continue your tracking action',f"<h1>Continue your tracking action</h1><form data-candidate-resume method='post' action='/candidate/resume'><input type='hidden' name='csrf' value='{csrf}'><button>Continue</button></form><p><a href='{escape(context.target,quote=True)}'>Cancel</a></p>",resume=True))
@@ -476,8 +492,8 @@ class CandidateAccountIntegration:
             available = False
             if variant and len(posting)==1 and posting[0][0]==variant:
                 try:
-                    self._posting(db,canonical,variant)
-                    available = True
+                    current_posting = self._posting(db,canonical,variant)
+                    available = item_id(owner,current_posting) == stored.pipeline_item['pipeline_item_id']
                 except ValueError:
                     pass
             records.append(dict(current,status='not_interested' if current['visibility']=='hidden' else current['workflow_status'],
