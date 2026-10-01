@@ -352,20 +352,23 @@ class NativeOperations:
         # Finish small inventories first so their unused allowance reaches the
         # larger inventories. A worker's cap includes interpreter startup and
         # up to three seconds reserved for rollback, not just publication work.
-        # Rich individual records (for example DataForce's 32 supported roles)
-        # need a useful-time floor even when record-count weighting is small.
-        # Fifteen seconds includes startup and rollback; unused time still
-        # reaches later sources inside the unchanged global deadline.
+        # DataForce's content replay and Surge's workforce HTML parsing exceeded
+        # the prior 15-second caps on 2026-10-01. Reserve enough useful time
+        # for those two bounded local phases. Unused time still reaches later
+        # sources inside the unchanged global publication deadline.
         sources=sorted(sources,key=lambda source:(weights[source],source))
         finish_reserve=daily.FINAL_INTEGRITY_SECONDS
+        extended_floor={'dataforce':40,'surge':40}
         allocation=dict(ordered_sources=sources,minimum_worker_seconds=15,
+            extended_minimum_worker_seconds={s:extended_floor[s] for s in sources if s in extended_floor},
             finish_reservation_seconds=finish_reserve,phase_caps_seconds={})
         for index,source in enumerate(sources):
             current=time.monotonic()
             remaining_sources=sources[index:];budget=max(0,deadline-finish_reserve-current)
-            minimum=min(15,budget/len(remaining_sources))
-            extra=budget-minimum*len(remaining_sources)
-            source_deadline=current+minimum+extra*weights[source]/sum(weights[s] for s in remaining_sources)
+            floors={s:extended_floor.get(s,15) for s in remaining_sources}
+            floor_scale=min(1,budget/sum(floors.values()))
+            extra=budget-floor_scale*sum(floors.values())
+            source_deadline=current+floors[source]*floor_scale+extra*weights[source]/sum(weights[s] for s in remaining_sources)
             allocation['phase_caps_seconds'][source]=round(source_deadline-current,3)
             daily.write_json(target/'publication-allocation.json',allocation)
             try:self.phase(run_id,'publish-'+source,source_deadline)

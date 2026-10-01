@@ -313,6 +313,42 @@ class StagedSupervisorTests(unittest.TestCase):
             self.assertEqual(recorded['ordered_sources'],order)
             self.assertEqual(recorded['phase_caps_seconds'],{source:round(cap,3) for source,cap in caps.items()})
 
+    def test_october_first_full_pool_reserves_useful_time_for_both_expired_publishers(self):
+        # The real 2026-10-01 cycle assigned 15.2 s to Surge and 15.993 s to
+        # DataForce. Both exhausted their useful worker deadline inside HTML
+        # processing. This simulates allocation, not a new provider request.
+        weights=dict(alignerr=5624,appen=38,dataannotation=10,dataforce=32,handshake=117,
+            mercor=471,meridial=832,mindrift=225,oneforma=459,outlier=8,rws=43,
+            surge=7,turing=287,welocalize=440)
+        observed=dict(alignerr=81.86,appen=3.946,dataannotation=6.654,dataforce=13.192,
+            handshake=12.845,mercor=14.541,meridial=24.229,mindrift=3.896,
+            oneforma=14.034,outlier=5.315,rws=3.444,surge=12.394,
+            turing=10.367,welocalize=14.347)
+        with tempfile.TemporaryDirectory() as temp:
+            target=Path(temp)/'runs/fixture';target.mkdir(parents=True)
+            daily.write_json(target/'publication-sources.json',list(weights))
+            daily.write_json(target/'publication-weights.json',weights)
+            native=cli.NativeOperations(dict(state_directory=temp),'fixture')
+            clock=[0.0];caps={};attempted=[]
+            def phase(run_id,name,deadline):
+                if name=='backup':clock[0]+=82.211;return
+                if name=='finish':clock[0]+=2.907;return
+                source=name.removeprefix('publish-');attempted.append(source)
+                caps[source]=deadline-clock[0]
+                # A conservative 25 s completion hypothesis for each failed
+                # parser stays below the new cap including 3 s rollback time.
+                elapsed=25 if source in ('dataforce','surge') else observed[source]
+                self.assertGreater(caps[source]-3,elapsed)
+                clock[0]+=elapsed
+            with patch.object(cli.time,'monotonic',side_effect=lambda:clock[0]),patch.object(native,'phase',side_effect=phase):
+                native.publish('fixture',daily.PUBLICATION_SECONDS)
+            self.assertEqual(set(attempted),set(weights))
+            self.assertGreaterEqual(caps['surge'],40)
+            self.assertGreaterEqual(caps['dataforce'],40)
+            self.assertLess(clock[0],daily.PUBLICATION_SECONDS-daily.FINAL_INTEGRITY_SECONDS)
+            recorded=daily.read_json(target/'publication-allocation.json')
+            self.assertEqual(recorded['extended_minimum_worker_seconds'],{'dataforce':40,'surge':40})
+
     def test_expanded_dataforce_has_useful_time_in_full_daily_publication_pool(self):
         # The Sep 28 daily run gave 32 rich DataForce records only 10.283 s.
         # Interpreter startup plus the rollback reserve left too little time
