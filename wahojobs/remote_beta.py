@@ -89,16 +89,30 @@ real invitations. This page is a technical description, not a legal certificatio
 
 class RemoteBetaIntegration:
     """Gate every non-auth route using the existing durable session authority."""
-    def __init__(self, runtime, *, clock=None, public_catalog=None, catalog_key=None):
+    def __init__(self, runtime, *, clock=None, public_catalog=None, catalog_key=None, candidate=None, candidate_key=None):
         self.runtime = runtime
         self.clock = clock or (lambda: datetime.now(timezone.utc))
         self.public_catalog = public_catalog
         self.catalog_key = catalog_key
+        self.candidate = candidate
+        self.candidate_key = candidate_key
 
     def handle(self, method, target, headers, body_stream=None):
         # Handler already enforced trusted ingress. The underlying product still
         # enforces its exact Host/Origin/CSRF contract independently.
         path = urlsplit(target).path
+        if path == '/_candidate' or path.startswith('/_candidate/'):
+            items = tuple(headers.items()) if hasattr(headers,'items') else tuple(headers)
+            keys = [v for k,v in items if k.lower()=='x-wahojobs-candidate-key']
+            if (self.candidate is None or not self.candidate_key or len(keys)!=1
+                    or not hmac.compare_digest(keys[0],self.candidate_key)):
+                return response(404,'Page not found.\n')
+            # This credential selects an ingress only. Candidate session and
+            # account/ownership/CSRF authority are independently validated below.
+            public_target = target[len('/_candidate'):]
+            permitted = {'cookie','origin','content-type','content-length'}
+            candidate_headers = tuple((k,v) for k,v in items if k.lower() in permitted) + (('Host','www.wahojobs.com'),)
+            return self.candidate.handle(method,public_target,candidate_headers,body_stream)
         if path == '/_catalog' or path.startswith('/_catalog/'):
             from wahojobs.public_catalog_reader import KEY_HEADER, ORIGIN_PREFIX
             items = headers.items() if hasattr(headers, 'items') else headers
@@ -132,12 +146,15 @@ class RemoteBetaIntegration:
         if path not in _PUBLIC:
             from wahojobs.browser_session_authentication import DurableBrowserSessionAuthenticationGateway
             from wahojobs.persistent_profiles_application import BrowserRequestContext
+            from wahojobs.persistent_profile_read_authorization import DurablePersistentProfileReadAuthorizationGateway
             gateway = DurableBrowserSessionAuthenticationGateway(
                 trusted_environment_namespace='private_beta', clock=self.clock)
             with self.runtime._connections.read_only_connection_provider() as connection:
                 actor = gateway.authenticate_browser_request(connection,
                     BrowserRequestContext('GET', '/account/profile', headers))
-            if actor is None:
+                authorization = (DurablePersistentProfileReadAuthorizationGateway().authorize_persistent_profile_read(
+                    connection,authenticated_actor=actor) if actor else None)
+            if actor is None or authorization is None or authorization.state != 'authorized':
                 return response(303, 'Sign in with your invitation.\n', location='/login')
         result = self.runtime.browser_integration.handle(method, target, headers, body_stream)
         if path == '/login' and method == 'GET' and result.status == 200:
@@ -149,14 +166,17 @@ class RemoteBetaIntegration:
 
 
 def make_remote_handler(runtime, proxy_secret, *, diagnostics=None, clock=None,
-                        public_catalog=None, catalog_key=None):
+                        public_catalog=None, catalog_key=None, candidate=None, candidate_key=None):
     from wahojobs.durable_product_browser_handler import make_durable_product_browser_handler
     if type(proxy_secret) is not str or not re.fullmatch('[0-9a-f]{64}', proxy_secret):
         raise WorkOSAuthKitStagingError('configuration_invalid')
     if public_catalog is not None and (type(catalog_key) is not str or not re.fullmatch('[0-9a-f]{64}', catalog_key)):
         raise WorkOSAuthKitStagingError('configuration_invalid')
+    if candidate is not None and (public_catalog is None or type(candidate_key) is not str
+            or not re.fullmatch('[0-9a-f]{64}',candidate_key) or candidate_key==catalog_key):
+        raise WorkOSAuthKitStagingError('configuration_invalid')
     base = make_durable_product_browser_handler(RemoteBetaIntegration(runtime, clock=clock,
-        public_catalog=public_catalog, catalog_key=catalog_key), diagnostics=diagnostics)
+        public_catalog=public_catalog, catalog_key=catalog_key, candidate=candidate, candidate_key=candidate_key), diagnostics=diagnostics)
     authority = urlsplit(runtime.public_origin).netloc
 
     class RemoteHandler(base):

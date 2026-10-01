@@ -13,6 +13,7 @@ RECEIPT_SCHEMA_VERSION = 1
 OPERATION_SCHEMA = "pipeline_action_operation_v1"
 NOOP_SCHEMA = "pipeline_action_noop_v1"
 INITIALIZATION_SCHEMA = "user_initialization_v1"
+DISCOVERY_INITIALIZATION_SCHEMA = "user_initialization_v2"
 LEGACY_BASELINE_SCHEMA = "legacy_migration_snapshot_v1"
 APPLICANT_RECEIPT_SCHEMA = "applicant_operation_receipt_v1"
 INTERNAL_IDEMPOTENCY_PREFIX = "wahojobs-internal:pipeline-action:v1:"
@@ -420,8 +421,13 @@ def _validate_operation_request(value):
         _fail("invalid_operation_request")
     if request["action"] not in SUPPORTED_ACTIONS:
         _fail("invalid_operation_request")
-    for field in ("owner_profile_id", "pipeline_item_id", "match_run_id", "actor_source"):
+    for field in ("owner_profile_id", "pipeline_item_id", "actor_source"):
         _string(request[field], "invalid_operation_request", nonempty=True)
+    if request["match_run_id"] is None:
+        if request["actor_source"] != "candidate_catalog":
+            _fail("invalid_operation_request")
+    else:
+        _string(request["match_run_id"], "invalid_operation_request", nonempty=True)
     _integer(request["expected_version"], "invalid_operation_request", minimum=0)
     _boolean(request["expected_version_was_supplied"], "invalid_operation_request")
     if request["identity_mode"] not in {"pipeline_item", "opportunity"}:
@@ -545,7 +551,8 @@ def validate_terminal_operation_metadata(
         or product["action"] not in SUPPORTED_ACTIONS
     ):
         _fail("malformed_terminal_operation_metadata")
-    _string(product["match_run_id"], "malformed_terminal_operation_metadata", nonempty=True)
+    if product["match_run_id"] is not None:
+        _string(product["match_run_id"], "malformed_terminal_operation_metadata", nonempty=True)
     _hex_digest(product["fingerprint"], "malformed_terminal_operation_metadata")
     request = _validate_operation_request(product["operation_request"])
     if (
@@ -778,7 +785,7 @@ def validate_user_initialization_metadata(*, metadata, transition):
     value = _exact_dict(metadata, fields, "invalid_user_initialization_metadata")
     if (
         value["schema_version"] != ORCHESTRATION_METADATA_VERSION
-        or value["metadata_schema"] != INITIALIZATION_SCHEMA
+        or value["metadata_schema"] not in {INITIALIZATION_SCHEMA, DISCOVERY_INITIALIZATION_SCHEMA}
         or value["transition_class"] != "user_initialization"
         or value["initialization_kind"] != "user_created"
         or value["creation_origin"] != "product_action"
@@ -793,7 +800,8 @@ def validate_user_initialization_metadata(*, metadata, transition):
     if value["internal_step"] != "initialize":
         _fail("user_initialization_internal_key_mismatch")
     _hex_digest(value["product_action_fingerprint"], "invalid_user_initialization_metadata")
-    _string(value["match_run_id"], "invalid_user_initialization_metadata", nonempty=True)
+    if value["match_run_id"] is not None:
+        _string(value["match_run_id"], "invalid_user_initialization_metadata", nonempty=True)
     if (
         not str(transition.get("idempotency_key") or "").startswith(
             INTERNAL_IDEMPOTENCY_PREFIX
@@ -813,7 +821,7 @@ def validate_user_initialization_metadata(*, metadata, transition):
         or canonical_json(transition.get("after_state"))
         != canonical_json(
             {
-                "workflow_status": "saved",
+                "workflow_status": ("recommended" if value["metadata_schema"] == DISCOVERY_INITIALIZATION_SCHEMA else "saved"),
                 "workflow_status_provenance": "known",
                 "visibility": "visible",
                 "reminder_at": None,
@@ -876,6 +884,12 @@ def validate_user_initialization_binding(
     if initialization_transition.get("idempotency_key") != expected_internal_key:
         _fail("user_initialization_internal_key_mismatch")
     contract = CREATION_ACTION_CONTRACTS[first_action]
+    if initialization_metadata['metadata_schema'] == DISCOVERY_INITIALIZATION_SCHEMA:
+        contract = dict(contract)
+        if first_action == 'save':
+            contract.update(terminal_action_name='product_save', terminal_class=None)
+        elif first_action == 'not_interested':
+            contract['workflow_status'] = 'recommended'
     terminal_class = terminal_metadata.get("transition_class")
     after_state = pipeline_state.validate_state(terminal_transition.get("after_state"))
     if (

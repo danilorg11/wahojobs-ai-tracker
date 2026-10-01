@@ -616,6 +616,7 @@ def render_public_jobs_page(
     query_present=False,
     authenticated=False,
     public_reader=False,
+    candidate_controls=False,
 ):
     from wahojobs.candidate_presentation import candidate_style
     filters = catalog["filters"]
@@ -657,7 +658,7 @@ def render_public_jobs_page(
         else ""
     )
     cards = "".join(
-        render_job_card(job, return_to=catalog["normalized_target"], include_variant=True)
+        render_job_card(job, return_to=catalog["normalized_target"], include_variant=True, candidate_controls=candidate_controls)
         for job in catalog["jobs"]
     )
     if cards:
@@ -753,7 +754,7 @@ def render_filter_search(name, label, options, selected):
     )
 
 
-def render_job_card(job, *, return_to, include_variant=False):
+def render_job_card(job, *, return_to, include_variant=False, candidate_controls=False):
     title = candidate_text(job.get("source_title")) or candidate_text(
         job.get("canonical_title")
     )
@@ -793,6 +794,8 @@ def render_job_card(job, *, return_to, include_variant=False):
         if safe_target
         else ""
     )
+    from wahojobs.public_candidate_controls import controls
+    tracking = controls(job, return_to) if candidate_controls else ''
     return f"""
     <article class='job-card'>
       <div class='job-card-copy'>
@@ -806,6 +809,7 @@ def render_job_card(job, *, return_to, include_variant=False):
       </div>
       <div class='catalog-card-actions'>{view_link}
       {f"<span class='catalog-saved'>{public_job_page.e(job['_catalog_saved_status'])}</span>" if job.get('_catalog_saved_status') else ''}</div>
+      {tracking}
     </article>
     """
 

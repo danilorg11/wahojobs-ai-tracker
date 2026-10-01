@@ -175,7 +175,9 @@ def load_pipeline_record(
     restorable_applied = False
     if normalized_state and normalized_state['workflow_status'] == 'applied':
         effective = conn.execute("SELECT action_name,before_state_json FROM user_pipeline_transitions WHERE pipeline_item_id=? AND profile_id=? "
-            "AND affected_dimension IN ('workflow','correction','undo') AND before_state_json != after_state_json "
+            "AND affected_dimension IN ('workflow','correction','undo') "
+            "AND (json_extract(before_state_json,'$.workflow_status') IS NOT json_extract(after_state_json,'$.workflow_status') "
+            "OR json_extract(before_state_json,'$.workflow_status_provenance') IS NOT json_extract(after_state_json,'$.workflow_status_provenance')) "
             "ORDER BY state_version_after DESC LIMIT 1", (pipeline_item_id, item['profile_id'])).fetchone()
         import json
         previous = json.loads(effective['before_state_json']) if effective else None

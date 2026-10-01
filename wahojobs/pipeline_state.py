@@ -27,7 +27,7 @@ WORKFLOW_PROVENANCE = {"known", "inferred_legacy", "unknown_legacy"}
 VISIBILITIES = {"visible", "hidden"}
 WORKFLOW_TRANSITIONS = {
     "recommended": {"saved", "applied"},
-    "saved": {"applied"},
+    "saved": {"recommended", "applied"},
     "applied": {"waiting", "assessment_invited", "assessment_started"},
     "waiting": {"assessment_invited", "assessment_started"},
     "assessment_invited": {"assessment_started"},

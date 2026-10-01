@@ -324,6 +324,48 @@ class AccountService:
     def pending_invitation_is_valid(self, conn, **kwargs):
         return pending_invitation_is_valid(conn, **kwargs)
 
+    def create_public_workos_candidate(self, conn, *, identity, idempotency_key, now):
+        """Production-only admission of an SDK-verified identity; never link by email.
+
+        The private-beta invited operation and its email-collision policy remain
+        unchanged. This operation is used only by the explicit public gateway.
+        """
+        identity = _trusted_identity(identity, self._identity_verifier)
+        if (identity.provider != "workos_authkit" or not identity.email_verified
+                or identity.verified_email is None or not re.fullmatch(
+                    r"production:client_[A-Za-z0-9]{8,192}:user_[A-Za-z0-9]{8,192}",
+                    identity.provider_subject)):
+            raise AuthenticationUnavailable()
+        now = _now(now)
+        key = _idempotency_key(idempotency_key)
+        stamp = _timestamp(now)
+        fingerprint = _fingerprint({"provider": identity.provider,
+            "provider_subject_digest": hashlib.sha256(identity.provider_subject.encode()).hexdigest(),
+            "metadata_version": "public_candidate_registration_v1"})
+        try:
+            with atomic(conn):
+                existing = conn.execute("SELECT * FROM auth_identities WHERE provider=? AND provider_subject=?",
+                    (identity.provider, identity.provider_subject)).fetchone()
+                if existing is not None:
+                    user = _user_row(conn, existing["user_id"])
+                    if existing["disabled_at"] is not None or user["lifecycle_status"] != "active":
+                        raise AuthenticationUnavailable()
+                    return CreatedUser(_public_user(user), _public_identity(existing), None)
+                user_id, identity_id = _random_id("usr"), _random_id("auth")
+                conn.execute("INSERT INTO users(user_id,lifecycle_status,row_version,created_at,updated_at) "
+                    "VALUES(?,'active',1,?,?)", (user_id, stamp, stamp))
+                conn.execute("INSERT INTO auth_identities(auth_identity_id,user_id,provider,provider_subject,"
+                    "verified_email,email_verified,created_at,last_authenticated_at,link_idempotency_key,request_fingerprint) "
+                    "VALUES(?,?,?,?,?,1,?,?,?,?)", (identity_id,user_id,identity.provider,identity.provider_subject,
+                    normalize_email(identity.verified_email),stamp,_timestamp(identity.authenticated_at),key,fingerprint))
+                _insert_lifecycle_event(conn,user_id=user_id,event_type="account_created",occurred_at=stamp,
+                    source="public_candidate_registration",version_before=0,version_after=1,
+                    metadata={},idempotency_key=key,fingerprint=fingerprint)
+                row = conn.execute("SELECT * FROM auth_identities WHERE auth_identity_id=?",(identity_id,)).fetchone()
+                return CreatedUser(_public_user(_user_row(conn,user_id)),_public_identity(row),None)
+        except sqlite3.IntegrityError:
+            raise AuthenticationUnavailable() from None
+
     def link_verified_identity(self, conn, **kwargs):
         return _link_verified_identity(
             conn, identity_verifier=self._identity_verifier, **kwargs
@@ -435,7 +477,7 @@ class InvitationCreation:
 class CreatedUser:
     user: PublicUser
     identity: PublicIdentity
-    invitation_id: str
+    invitation_id: str | None
 
 
 @dataclass(frozen=True)
