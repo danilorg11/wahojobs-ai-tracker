@@ -15,15 +15,17 @@ concurrency:
 
 jobs:
   candidate-native:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 10
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@v5
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v6
         with:
           python-version: '3.12'
-      - name: Install the reused provider SDK
-        run: python -m pip install workos==10.2.0
+      - name: Install the reused provider SDK and HTTP dependency
+        run: python -m pip install workos==10.2.0 requests==2.32.5
       - name: Exercise real Linux permissions and native recovery on fixtures
         run: |
           sudo useradd --system --no-create-home --shell /usr/sbin/nologin wahojobs-beta
