@@ -449,8 +449,9 @@ class Publisher:
 def publish(plan_path, deployment, run, approved_plan, adapter=None):
     # Compatibility entry point only. Historical receipts stay readable; after
     # handoff all new production effects go through the common coordinator.
-    from publication_transition import legacy_entrypoint_guard
-    legacy_entrypoint_guard()
+    transition=HERE.parents[1]/'outputs/publication-state/transition.json'
+    if transition.exists():
+        require(read(transition)['state'] != 'active', 'legacy_publisher_retired_use_scripts_publication_py')
     raw = Path(plan_path).read_bytes()
     require(digest(raw) == approved_plan, 'exact_owner_approved_plan_hash_required')
     plan = json.loads(raw)

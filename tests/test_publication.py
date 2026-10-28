@@ -336,6 +336,85 @@ class CommonTests(unittest.TestCase):
         p.prepare(config,self.root/'second.json',self.root/'cache')
         self.assertNotEqual(p.read(self.root/'first.json')['steps'][0]['signature'],p.read(self.root/'second.json')['steps'][0]['signature'])
 
+    def test_new_checks_preserve_accepted_effect_without_another_apply(self):
+        payload=self.files_payload();s=step();s.pop('signature');s['worker'].update(
+            command=[sys.executable,'-B',str(ROOT/'scripts/publication_worker.py')],payload=payload)
+        s['resources']=payload['resources']
+        test_source=self.root/'new-test';test_source.write_text('previous check')
+        check=dict(id='q',categories=sorted(p.FAMILIES['frontend']),files=[str(test_source)],tools=[sys.executable],
+            command=[sys.executable,'-c','print("qualified")'],cwd=str(self.root),seconds=10)
+        config=self.root/'config.json';value=dict(format=p.FORMAT,environment='local',title='preserve accepted work',checks=[check],steps=[s])
+        p.once(config,value);p.prepare(config,self.root/'first.json',self.root/'cache')
+        self.assertTrue(p.execute(self.root/'first.json',local=True,coordinator=self.coordinator)['complete'])
+        test_source.write_text('additional regression check');value['reuse_plans']=[str(self.root/'first.json')];config.write_bytes(p.encoded(value))
+        p.prepare(config,self.root/'second.json',self.root/'cache')
+        result=p.execute(self.root/'second.json',local=True,coordinator=self.coordinator)
+        self.assertTrue(result['complete'],result)
+        self.assertIn('reused_original',result['results'][0])
+        self.assertEqual(len(list((self.root/'worker').glob('*/apply-intent.json'))),1)
+
+    def test_adoption_can_never_apply_or_return(self):
+        payload=self.files_payload();request=self.worker_request(payload,'apply')
+        request['adoption']=dict(read_only=True,original_operation=request['operation'],original_signature=request['signature'],
+            current_plan_sha256='c'*64,authorized_signature='d'*64)
+        with self.assertRaisesRegex(p.Stop,'adoption_is_observation_only'):w.Worker(request).call()
+
+    def test_transition_requires_every_publisher_and_original_evidence(self):
+        import publication_transition as t
+        proposal=self.root/'proposal.json';receipts=self.root/'handoff.json';evidence=self.root/'observed.json'
+        p.once(evidence,dict(actual_remote_state='fixture'))
+        p.once(proposal,dict(publishers=[dict(id='legacy')]))
+        p.once(receipts,dict(mode='scoped',human_decision_reference='fixture decision',approved_proposal_sha256=p.digest(proposal.read_bytes()),
+            publishers=[dict(id='legacy',unknown_prior_outcome_resolved=True,adopted=False,common_coordinator=str(p.STATE),
+                evidence_references=[dict(path=str(evidence),sha256=p.digest(evidence.read_bytes()))])]))
+        with self.assertRaisesRegex(p.Stop,'publisher_not_adopted'):t.activate(proposal,receipts,p.digest(proposal.read_bytes()),state=self.root/'handoff')
+
+    def test_dependency_failure_does_not_skip_independent_steps(self):
+        s=step('dependent');s['needs']=['blocked'];self.cloud.states['blocked']='unknown'
+        plan=dict(format=p.FORMAT,environment='local',engine_sha256=p.digest((ROOT/'scripts/publication.py').read_bytes()),
+            qualifications=[],steps=[step('blocked'),s,step('independent','/different')])
+        path=self.root/'plan.json';p.once(path,plan)
+        result=p.execute(path,local=True,coordinator=self.coordinator,worker_factory=self.cloud.factory)
+        self.assertEqual([r['state'] for r in result['results']],['unknown','waiting_for_dependency','accepted'])
+
+    def test_generic_sqlite_worker_cannot_delete_rows(self):
+        payload=self.sqlite_payload();payload['changes'][0]['after']=None
+        with self.assertRaisesRegex(p.Stop,'no_row_deletion'):w.Worker(self.worker_request(payload,'apply')).call()
+        with closing(sqlite3.connect(payload['database'])) as db:
+            self.assertEqual(db.execute('SELECT body FROM items').fetchone()[0],'teaser')
+
+    def test_missing_acceptance_after_finite_domain_exits_compatibly(self):
+        s=step(family='accounts');s['human_acceptance']=dict(mode='inside_finite_domain',receipt=str(self.root/'actual.json'))
+        self.assertEqual(self.run_step(s)['state'],'recovered')
+        self.assertEqual(self.cloud.actions.count(('change','recover')),1)
+
+    def test_genuine_acceptance_can_follow_finite_domain_apply(self):
+        s=step(family='accounts');s['human_acceptance']=dict(mode='inside_finite_domain',receipt=str(self.root/'actual.json'))
+        p.once(self.root/'actual.json',dict(accepted=True,human_reference='explicit synthetic test actor',effect_signature=p.effect_signature(s)))
+        self.assertEqual(self.run_step(s)['state'],'accepted')
+
+    def test_finite_auth_domain_requires_qualified_exit(self):
+        s=step(family='accounts');s.pop('signature');s['human_acceptance']=dict(mode='inside_finite_domain',receipt=str(self.root/'actual.json'))
+        check=dict(id='q',categories=sorted(p.FAMILIES['accounts']))
+        with self.assertRaisesRegex(p.Stop,'finite_account_exit'):
+            p.validate(dict(format=p.FORMAT,environment='local',steps=[s],checks=[check]))
+
+    def test_domain_observation_never_creates_a_missing_database(self):
+        import publication_domains as domain
+        missing=self.root/'missing.sqlite'
+        request=dict(payload=dict(source=str(self.root),database=str(missing),targets=[str(missing)],environment='local'))
+        with self.assertRaisesRegex(p.Stop,'existing_exact_domain_database'):
+            domain.content('observe',request,self.root)
+        self.assertFalse(missing.exists())
+
+    def test_unrelated_long_procedure_does_not_impose_its_window(self):
+        host=step('host','/hosts/1');host['seconds']['apply']=1000
+        website=step('website','/vercel/other')
+        plan=dict(steps=[host,website]);states=dict(host='unknown')
+        self.assertEqual(p.remaining_procedure(plan,website,states),p.envelope(website))
+        website['needs']=['host']
+        self.assertEqual(p.remaining_procedure(plan,website,states),p.envelope(website)+p.envelope(host))
+
 
 if __name__ == '__main__':
     unittest.main()

@@ -1,9 +1,9 @@
 name: Common publication protocol
 on:
   push:
-    paths: ['scripts/publication*.py', 'scripts/routine_release.py', 'tests/test_publication*.py', 'tests/test_routine_release.py', 'deploy/publication/**', 'AGENTS.md', 'docs/publication.md', '.github/workflows/publication.yml']
+    paths: ['scripts/publication*.py', 'scripts/rehearse_publication*.py', 'scripts/routine_release.py', 'tests/test_publication*.py', 'tests/test_routine_release.py', 'deploy/publication/**', 'AGENTS.md', 'docs/publication.md', '.github/workflows/publication.yml']
   pull_request:
-    paths: ['scripts/publication*.py', 'tests/test_publication*.py', 'deploy/publication/**', 'AGENTS.md', 'docs/publication.md', '.github/workflows/publication.yml']
+    paths: ['scripts/publication*.py', 'scripts/rehearse_publication*.py', 'tests/test_publication*.py', 'deploy/publication/**', 'AGENTS.md', 'docs/publication.md', '.github/workflows/publication.yml']
   workflow_dispatch:
 permissions:
   contents: read

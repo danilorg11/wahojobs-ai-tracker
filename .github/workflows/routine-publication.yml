@@ -1,0 +1,19 @@
+name: Historical routine compatibility (manual)
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+# Default checks live in publication.yml. Keep this only for explicitly
+# investigating a v1 receipt; do not run a second publication pipeline.
+jobs:
+  compatibility:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+      - run: python -B -m unittest discover -s tests -p test_routine_release.py -v

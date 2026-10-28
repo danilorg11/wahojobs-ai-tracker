@@ -28,7 +28,8 @@ def prepare(output):
         rows.append(row)
     replacements = output/'workflow-replacements'; replacements.mkdir(exist_ok=True)
     for old_name in ('nodejs-digital-ocean-deploy-new.yml','nodejs-digital-ocean-deploy-backup.yml',
-                     'unified-account-release.yml','unified-account-backup.yml','unified-account-preparation-return.yml'):
+                     'unified-account-release.yml','unified-account-backup.yml','unified-account-preparation-return.yml',
+                     'unified-account-preflight.yml'):
         text = '''name: Prepare publication artifact (common protocol)
 on:
   workflow_dispatch:
@@ -108,10 +109,7 @@ def activate(proposal_path, receipts_path, approved_hash, *, state=p.STATE):
 def legacy_entrypoint_guard(lease_reference=None):
     transition = p.STATE/'transition.json'
     if transition.exists() and p.read(transition)['state'] == 'active':
-        p.require(lease_reference is not None, 'legacy_publisher_retired_use_scripts_publication_py')
-        # A caller cannot mint a lease by passing an environment string.
-        row = p.Coordinator().row(lease_reference)
-        p.require(row and row['state'] in p.ACTIVE, 'actual_common_operation_claim_required')
+        p.require(False, 'legacy_publisher_retired_use_scripts_publication_py')
 
 
 if __name__ == '__main__':

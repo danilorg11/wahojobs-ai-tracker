@@ -36,6 +36,11 @@ def validate(request):
     r.require(request['protocol'] == PROTOCOL and request['action'] in ('observe', 'apply', 'check', 'recover', 'cleanup'), 'unsupported_worker_request')
     r.require(len(request['operation']) == 32 and len(request['signature']) == 64, 'operation_binding_required')
     r.require(p['environment'] in ('local', 'production'), 'environment_required')
+    adoption=request.get('adoption')
+    if adoption:
+        r.require(adoption['read_only'] is True and request['action'] in ('observe','check','cleanup')
+                  and adoption['original_operation']==request['operation']
+                  and adoption['original_signature']==request['signature'],'accepted_effect_adoption_is_observation_only')
     if p['environment'] == 'local':
         paths = [p['state_directory'], *p.get('targets', [])]
         r.require(all(Path(path).resolve().is_relative_to(ROOT/'outputs') for path in paths), 'local_mutation_outside_outputs')
@@ -49,7 +54,9 @@ def validate(request):
         grant = r.read(authority)
         current = datetime.now(timezone.utc)
         r.require(grant['status'] == 'granted' and grant['human_decision_reference'], 'actual_owner_grant_required')
-        r.require(grant['plan_sha256'] == request['plan_sha256'] and request['signature'] in grant['signatures'], 'authority_scope_mismatch')
+        authorized_plan=adoption['current_plan_sha256'] if adoption else request['plan_sha256']
+        authorized_signature=adoption['authorized_signature'] if adoption else request['signature']
+        r.require(grant['plan_sha256'] == authorized_plan and authorized_signature in grant['signatures'], 'authority_scope_mismatch')
         r.require(datetime.fromisoformat(grant['not_before']) <= current < datetime.fromisoformat(grant['expires_at']), 'authority_not_current')
         r.require(set(p['resources']) <= set(grant['resources']), 'authority_resource_mismatch')
     return p
@@ -276,6 +283,10 @@ class Worker:
                 db.execute('CREATE TABLE IF NOT EXISTS '+q(AUDIT_TABLE)+' (operation TEXT PRIMARY KEY, signature TEXT NOT NULL, state TEXT NOT NULL, changes TEXT NOT NULL)')
                 for change in self.p['changes']:
                     r.require(change['table'] in self.p['allowed_tables'] and change['table'] != AUDIT_TABLE, 'table_outside_data_scope')
+                    r.require(isinstance(change['before'],dict) and isinstance(change['after'],dict)
+                        and change['before'] and set(change['before'])==set(change['after'])
+                        and not set(change['key']) & set(change['after']),
+                        'generic_data_worker_only_updates_owned_columns_no_row_deletion')
                     self.change(db, change, change['before'], change['after'])
                 db.execute('INSERT INTO '+q(AUDIT_TABLE)+' VALUES (?,?,?,?)',
                     (self.request['operation'], self.request['signature'], 'applied', json.dumps(self.p['changes'], sort_keys=True)))
@@ -300,6 +311,7 @@ class Worker:
         r.require(r.digest(path.read_bytes()) == self.p['module_sha256'], 'domain_adapter_changed')
         spec = importlib.util.spec_from_file_location('publication_domain', path)
         module = importlib.util.module_from_spec(spec)
+        sys.modules[spec.name]=module
         spec.loader.exec_module(module)
         if action in ('apply','recover'):
             self.hooks('preflight')

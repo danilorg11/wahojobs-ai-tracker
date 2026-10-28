@@ -34,6 +34,11 @@ conserva fontes, respostas salvas e testes aprovados. Usa recursos locais, sem
 autorização de produção. Os comandos são trabalho do operador, não etapas de
 intervenção do dono.
 
+Ao alterar o protocolo de recuperação, o ensaio com interrupção real é
+`python -B scripts/rehearse_publication_recovery.py OUTPUT_NORMAL OUTPUT_FALHA_NOVO`.
+Ele usa a transação original, interrompe o processo após o commit, conserva dados
+novos e verifica a nova tentativa conhecida. Não é uma obrigação a cada texto/CSS.
+
 ## Caminhos proporcionais e executáveis
 
 | Efeito | Worker | Qualificação e recuperação |
@@ -59,6 +64,23 @@ O domínio continua responsável por lease, transação, captura, OAuth/identida
 limites do provedor. Não use o SQL genérico para contornar o schema protegido do
 produto. Migrações sem retorno compatível precisam de expansão/contração ou
 reparo adiante qualificado dentro da mesma etapa, antes de serem admitidas.
+
+Código compatível e reparo de conteúdo podem usar `scripts/publication_beta.py`:
+uma etapa, um gate nativo e uma parada/inicialização. O retorno mantém o conteúdo
+aceito e troca somente código/política. Os dois leitores precisam ser compatíveis
+com os dados; agrupar componentes incompatíveis para economizar tempo é inválido.
+Inclua planos de dados, artefatos e código nativo em `worker.files`: um caminho
+para um arquivo mutável não fixa seus conteúdos.
+
+Quando uma autenticação alterada só puder ser aceita depois de ativada, use
+`human_acceptance.mode=inside_finite_domain`: o módulo contém enable/test/saída,
+um controlador de recuperação independente, categoria qualificada `finite-exit`
+e `finite_account_exit=true`. O indicador não instala o controlador: sua
+implementação real e seu teste de interrupção são parte da qualificação. A
+aceitação humana é conferida depois do domínio, antes do aceite final; ausência
+ou rejeição aciona a saída compatível. O recibo pode ligar o ator e o resultado
+ao `effect_signature`, permitindo reaproveitá-lo quando apenas o procedimento
+mudar. Esse caminho permite aceitar a funcionalidade no próprio ensaio finito.
 
 ## Tempo, evidência e decisões
 

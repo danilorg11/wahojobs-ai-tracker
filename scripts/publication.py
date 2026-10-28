@@ -25,6 +25,7 @@ ROOT = Path(__file__).resolve().parents[1]
 STATE = ROOT/'outputs/publication-state'
 FORMAT = 'wahojobs-publication-v2'
 QUALIFICATION_VERSION = 1
+LOADED_ENGINE_SHA256 = sha256(Path(__file__).read_bytes()).hexdigest()
 FAMILIES = {
     'content': {'source', 'render', 'recovery'},
     'frontend': {'source', 'build', 'contract', 'recovery'},
@@ -60,6 +61,9 @@ class Coordinator:
                 kind TEXT NOT NULL, value TEXT NOT NULL);
                 CREATE TABLE IF NOT EXISTS completions (
                 signature TEXT PRIMARY KEY, operation TEXT NOT NULL, receipt TEXT NOT NULL);
+                CREATE TABLE IF NOT EXISTS accepted_effects (
+                effect TEXT PRIMARY KEY, operation TEXT NOT NULL, signature TEXT NOT NULL,
+                receipt TEXT NOT NULL, source_step TEXT NOT NULL);
             ''')
 
     @contextmanager
@@ -137,15 +141,35 @@ class Coordinator:
             legacy.replace_registry(path, rows)
 
     def complete(self, operation, signature, state, receipt):
-        self.event(operation, 'terminal', receipt, state=state)
-        if state == 'accepted':
-            with self.connection() as db:
+        # Completion and its reuse index commit together. A process exit cannot
+        # leave accepted work invisible to a later qualified plan.
+        with self.connection() as db:
+            db.execute('BEGIN IMMEDIATE')
+            db.execute('INSERT INTO events(operation,at,kind,value) VALUES (?,?,?,?)',
+                (operation,now(),'terminal',json.dumps(receipt,sort_keys=True)))
+            db.execute('UPDATE operations SET state=?,updated=? WHERE id=?',(state,now(),operation))
+            if state=='accepted':
                 db.execute('INSERT OR REPLACE INTO completions VALUES (?,?,?)',
                            (signature, operation, json.dumps(receipt, sort_keys=True)))
 
     def completion(self, signature):
         with self.connection() as db:
             row = db.execute('SELECT * FROM completions WHERE signature=?', (signature,)).fetchone()
+            return dict(row) if row else None
+
+    def register_effects(self, plan_path, expected_hash):
+        raw=Path(plan_path).read_bytes();require(digest(raw)==expected_hash,'reuse_plan_changed')
+        plan=json.loads(raw)
+        for step in plan['steps']:
+            original=self.completion(step['signature'])
+            if original and json.loads(original['receipt'])['plan_sha256']==expected_hash:
+                with self.connection() as db:
+                    db.execute('INSERT OR REPLACE INTO accepted_effects VALUES (?,?,?,?,?)',
+                        (effect_signature(step),original['operation'],step['signature'],original['receipt'],json.dumps(step,sort_keys=True)))
+
+    def accepted_effect(self, step):
+        with self.connection() as db:
+            row=db.execute('SELECT * FROM accepted_effects WHERE effect=?',(effect_signature(step),)).fetchone()
             return dict(row) if row else None
 
 
@@ -204,6 +228,28 @@ def step_signature(step):
     return digest(encoded(step))
 
 
+def effect_signature(step):
+    """Intent identity is separate from its qualified procedure/check revisions.
+
+    This permits a fixed adapter or added test to re-check an already accepted
+    effect, without publishing it again. Arbitrary domain adapters conservatively
+    bind their whole payload unless they supply a reviewed explicit effect.
+    """
+    payload=step['worker']['payload'];kind=payload['kind']
+    if kind=='files':
+        effect={key:payload.get(key) for key in ('environment','kind','targets','files')}
+    elif kind=='vercel':
+        c=payload['configuration']
+        effect={key:c[key] for key in ('project','team','aliases','accepted_deployment','accepted_commit','candidate_deployment','candidate_commit')}
+    elif kind=='sqlite':
+        effect={key:payload.get(key) for key in ('environment','kind','database','changes','allowed_tables')}
+    else:
+        effect=step.get('qualified_effect',payload)
+    return digest(encoded(dict(id=step['id'],family=step['family'],resources=step['resources'],
+        effects=step.get('effects'),acceptance_contract=step.get('human_acceptance'),
+        compatibility=step['compatibility'],effect=effect)))
+
+
 def validate(config):
     require(config['format'] == FORMAT and config['environment'] in ('local', 'production'), 'unsupported_publication_plan')
     require(config.get('steps') and len({s['id'] for s in config['steps']}) == len(config['steps']), 'unique_nonempty_steps_required')
@@ -219,6 +265,13 @@ def validate(config):
         require(FAMILIES[step['family']] <= categories, 'missing_risk_checks:'+step['id'])
         if step.get('effects', {}).get('provider_login'):
             require('real-provider-acceptance' in categories or step.get('human_acceptance'), 'provider_acceptance_path_required')
+        human=step.get('human_acceptance')
+        if human and human.get('mode','before_apply')=='inside_finite_domain':
+            require(step['worker']['payload']['kind']=='module' and 'finite-exit' in categories
+                and step['worker']['payload'].get('finite_account_exit') is True,
+                'qualified_independent_finite_account_exit_required')
+        elif human:
+            require(human.get('mode','before_apply')=='before_apply','unknown_acceptance_mode')
         for label in ('observe', 'apply', 'check', 'recover', 'cleanup'):
             require(type(step['seconds'][label]) is int and step['seconds'][label] > 0, 'positive_phase_bound_required')
         require(step.get('recovery_reason') and step.get('duration_reason'), 'concrete_duration_and_recovery_basis_required')
@@ -263,9 +316,11 @@ def phase_floors(step):
 
 
 def prepare(config_path, output, cache=STATE/'qualifications'):
+    require(digest(Path(__file__).read_bytes())==LOADED_ENGINE_SHA256,'restart_changed_publication_engine_preserve_receipts')
     config = read(config_path)
     validate(config)
     qualifications = [run_check(check, cache) for check in config['checks']]
+    require(digest(Path(__file__).read_bytes())==LOADED_ENGINE_SHA256,'restart_changed_publication_engine_preserve_receipts')
     signatures = {}
     steps = []
     for item in config['steps']:
@@ -282,6 +337,7 @@ def prepare(config_path, output, cache=STATE/'qualifications'):
         prepared_at=now(), steps=steps, qualifications=qualifications,
         engine_sha256=digest(Path(__file__).read_bytes()), coordinator=str(STATE),
         accounting=config.get('accounting'), transition=config.get('transition'),
+        reuse_plans=[dict(path=str(Path(path).resolve()),sha256=digest(Path(path).read_bytes())) for path in config.get('reuse_plans',[])],
         sources=config.get('sources', []))
     once(output, plan)
     return dict(plan=str(Path(output).resolve()), sha256=digest(Path(output).read_bytes()),
@@ -307,6 +363,7 @@ class Worker:
                        signature=self.step['signature'], payload=self.step['worker']['payload'])
         seconds = self.step['seconds'].get(action, self.step['seconds']['observe'])
         request['phase_budget_seconds'] = seconds
+        if self.step.get('adoption'):request['adoption']=self.step['adoption']
         result = subprocess.run(self.step['worker']['command'], input=encoded(request),
             cwd=self.step['worker'].get('cwd', str(ROOT)), capture_output=True, shell=False,
             timeout=seconds, env=dict(os.environ, **self.step['worker'].get('environment', {})))
@@ -328,6 +385,30 @@ def verify_qualifications(plan):
             require(all(digest(Path(p).read_bytes()) == h for p, h in receipt[mapping].items()), 'qualification_inputs_or_artifacts_changed')
 
 
+def native_binding(receipt, step):
+    if receipt.get('worker_binding'):return receipt['worker_binding']
+    while receipt.get('reused_original'):receipt=receipt['reused_original']
+    return dict(operation=receipt['operation'],plan_sha256=receipt['plan_sha256'],
+        signature=receipt.get('worker',{}).get('signature',step['signature']),
+        state_directory=step['worker']['payload']['state_directory'])
+
+
+def observing_worker(step,receipt,plan_hash,worker_factory):
+    binding=native_binding(receipt,step);old_step=json.loads(json.dumps(step))
+    old_step['signature']=binding['signature'];old_step['worker']['payload']['state_directory']=binding['state_directory']
+    old_step['adoption']=dict(current_plan_sha256=plan_hash,authorized_signature=step['signature'],
+        original_operation=binding['operation'],original_signature=binding['signature'],read_only=True)
+    return worker_factory(old_step,binding['operation'],binding['plan_sha256'])
+
+
+def verify_acceptance(step):
+    if step.get('human_acceptance'):
+        actual=read(step['human_acceptance']['receipt'])
+        require(actual.get('accepted') is True and actual.get('human_reference')
+            and (actual.get('signature')==step['signature'] or actual.get('effect_signature')==effect_signature(step)),
+            'genuine_required_acceptance_not_observed')
+
+
 def drive(plan, plan_hash, step, coordinator, *, worker_factory=Worker):
     operation = digest(encoded([plan_hash, step['id']]))[:32]
     signature, resources = step['signature'], step['resources']
@@ -336,10 +417,13 @@ def drive(plan, plan_hash, step, coordinator, *, worker_factory=Worker):
     with coordinator.claim(operation, signature, plan_hash, step['id'], resources):
         current = coordinator.row(operation)
         if current['state'] in ('accepted', 'recovered'):
+            terminal=json.loads(next(e['value'] for e in reversed(coordinator.events(operation)) if e['kind']=='terminal'))
+            worker=observing_worker(step,terminal,plan_hash,worker_factory)
             observed = worker.call('observe')
             require(observed['state'] == current['state'], 'completed_operation_target_changed')
             if current['state'] == 'accepted':
                 require(worker.call('check')['state'] == 'accepted', 'completed_operation_no_longer_accepted')
+                verify_acceptance(step)
             # A crash may happen after recording completion but before removing
             # our bridge row. Reconcile only that exact owned row.
             if not coordinator.scoped:
@@ -356,14 +440,16 @@ def drive(plan, plan_hash, step, coordinator, *, worker_factory=Worker):
         try:
             coordinator.legacy_enter(operation, signature, resources)
             entered = True
-            prior = coordinator.completion(signature)
+            prior = coordinator.completion(signature) or coordinator.accepted_effect(step)
             if prior and prior['operation'] != operation:
                 original = json.loads(prior['receipt'])
-                old_worker = worker_factory(step, prior['operation'], original['plan_sha256'])
+                old_worker=observing_worker(step,original,plan_hash,worker_factory)
                 actual = old_worker.call('observe')
                 require(actual['state'] == 'accepted' and old_worker.call('check')['state'] == 'accepted', 'previously_accepted_step_changed')
+                verify_acceptance(step)
                 receipt = dict(step=step['id'], operation=operation, state='accepted', at=now(),
-                    plan_sha256=plan_hash, reused_original=json.loads(prior['receipt']), fresh_check=actual)
+                    plan_sha256=plan_hash, reused_original=json.loads(prior['receipt']), fresh_check=actual,
+                    worker_binding=native_binding(original,step))
                 coordinator.complete(operation, signature, 'accepted', receipt)
                 coordinator.legacy_exit(operation)
                 return receipt
@@ -399,6 +485,7 @@ def drive(plan, plan_hash, step, coordinator, *, worker_factory=Worker):
                     require(observed['state'] != 'failed', 'owned_partial_apply_requires_return')
                     checked = worker.call('check')
                     require(checked['state'] == 'accepted', 'candidate_check_not_accepted')
+                    verify_acceptance(step)
                     observed = checked
                 except Exception as error:
                     require(time.monotonic()+step['seconds']['recover']+step['seconds']['observe']+step['seconds']['check']+step['seconds']['cleanup'] <= deadline,
@@ -420,7 +507,9 @@ def drive(plan, plan_hash, step, coordinator, *, worker_factory=Worker):
             cleanup = worker.call('cleanup')
             require(cleanup['state'] == observed['state'], 'cleanup_not_terminal_keep_reservation')
             receipt = dict(step=step['id'], operation=operation, state=observed['state'], at=now(),
-                           plan_sha256=plan_hash, worker=observed, cleanup=cleanup)
+                           plan_sha256=plan_hash, worker=observed, cleanup=cleanup,
+                           worker_binding=dict(operation=operation,plan_sha256=plan_hash,signature=signature,
+                               state_directory=step['worker']['payload']['state_directory']))
             coordinator.complete(operation, signature, observed['state'], receipt)
             coordinator.legacy_exit(operation)
             return receipt
@@ -436,13 +525,16 @@ def drive(plan, plan_hash, step, coordinator, *, worker_factory=Worker):
 
 def execute(plan_path, approved_hash=None, *, local=False, coordinator=None, worker_factory=Worker):
     raw = Path(plan_path).read_bytes(); plan = json.loads(raw); plan_hash = digest(raw)
-    require(plan['format'] == FORMAT and plan['engine_sha256'] == digest(Path(__file__).read_bytes()), 'prepared_engine_changed')
+    require(plan['format'] == FORMAT and plan['engine_sha256'] == LOADED_ENGINE_SHA256
+        and LOADED_ENGINE_SHA256 == digest(Path(__file__).read_bytes()), 'prepared_engine_changed')
     require(local == (plan['environment'] == 'local'), 'environment_boundary_mismatch')
     if not local:
         require(approved_hash == plan_hash, 'exact_final_production_approval_required')
         require(read(STATE/'transition.json')['state'] == 'active', 'publisher_transition_not_activated')
     verify_qualifications(plan)
     coordinator = coordinator or Coordinator(scoped=local or read(STATE/'transition.json')['mode'] == 'scoped')
+    for reference in plan.get('reuse_plans',[]):coordinator.register_effects(reference['path'],reference['sha256'])
+    coordinator.register_effects(plan_path,plan_hash)
     states, results = {}, []
     for step in plan['steps']:
         if not all(states.get(dep) == 'accepted' for dep in step['needs']):
@@ -455,7 +547,24 @@ def execute(plan_path, approved_hash=None, *, local=False, coordinator=None, wor
         except Exception as error:
             result = dict(step=step['id'], state='attention', reason=str(error) if isinstance(error, Stop) else type(error).__name__)
         states[step['id']] = result['state']; results.append(result)
+    coordinator.register_effects(plan_path,plan_hash)
     return dict(plan_sha256=plan_hash, results=results, complete=all(s == 'accepted' for s in states.values()) and len(states) == len(plan['steps']))
+
+
+def remaining_procedure(plan,step,states):
+    """Time admission follows real dependencies/resources, not unrelated queues."""
+    pending=[s for s in plan['steps'] if states.get(s['id'])!='accepted']
+    selected={step['id']}
+    while True:
+        previous=set(selected)
+        for other in pending:
+            for current in pending:
+                if current['id'] not in selected:continue
+                if (other['id'] in current['needs'] or current['id'] in other['needs']
+                    or any(conflicts(a,b) for a in current['resources'] for b in other['resources'])):
+                    selected.add(other['id'])
+        if selected==previous:break
+    return sum(envelope(s) for s in pending if s['id'] in selected)
 
 
 def authorize(plan, plan_hash, step, states):
@@ -466,7 +575,7 @@ def authorize(plan, plan_hash, step, states):
     current = datetime.now(timezone.utc)
     start, end = (datetime.fromisoformat(grant[k]) for k in ('not_before', 'expires_at'))
     require(start <= current < end, 'owner_grant_not_current')
-    remaining = sum(envelope(s) for s in plan['steps'] if states.get(s['id']) != 'accepted')
+    remaining = remaining_procedure(plan,step,states)
     require((end-current).total_seconds() >= remaining, 'whole_remaining_publication_and_recovery_do_not_fit')
     if step['access']['kind'] == 'private-host':
         a = grant['host_maintenance']
@@ -477,10 +586,8 @@ def authorize(plan, plan_hash, step, states):
         require(all(n.is_finite() and n >= 0 for n in amounts), 'finite_nonnegative_maintenance_capacity_required')
         require(amounts[0]+amounts[1] <= amounts[2], 'maintenance_ceiling_exceeded')
         require(amounts[1] >= Decimal(remaining), 'qualified_operation_allowance_too_small')
-    if step.get('human_acceptance'):
-        actual = read(step['human_acceptance']['receipt'])
-        require(actual.get('accepted') is True and actual.get('signature') == step['signature']
-                and actual.get('human_reference'), 'genuine_required_acceptance_not_observed')
+    if step.get('human_acceptance',{}).get('mode','before_apply')=='before_apply':
+        verify_acceptance(step)
 
 
 def main():

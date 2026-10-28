@@ -55,12 +55,17 @@ def seed_content_repair(source, destination):
 
 def content(action, request, root):
     p=request['payload']; sys.path.insert(0,p['source'])
+    database=Path(p['database']).resolve()
+    r.require(database.is_file() and not Path(p['database']).is_symlink(),'existing_exact_domain_database_required')
+    r.require(str(database) in [str(Path(path).resolve()) for path in p['targets']],'undeclared_domain_database')
+    if p['environment']=='local':
+        r.require(database.is_relative_to(Path(__file__).resolve().parents[1]/'outputs'),'local_domain_database_outside_outputs')
     from wahojobs import catalog_content_repair as repair
     from wahojobs.db.connection import get_connection
     from wahojobs.database_lifetime_ownership import acquire_database_lifetime_ownership,release_database_lifetime_ownership,ROLE_OFFLINE_OPERATOR
     plan=r.read(p['domain_plan'])
     result=lambda state,**kw:dict(operation=request['operation'],signature=request['signature'],state=state,**kw)
-    with closing(get_connection(p['database'])) as conn:
+    with closing(get_connection(Path(p['database']))) as conn:
         def observation():
             states=[]
             from wahojobs.crawler.provider_details import DETAIL_KEY
@@ -68,14 +73,19 @@ def content(action, request, root):
             for record in plan['records']:
                 job,source,binding=repair._binding(conn,record['job_id'])
                 if (job['external_id']!=record['external_id'] or job['url']!=record['official_url']
-                        or job['location']!=record['location'] or job['title']!=record['title']):
+                        or job['location']!=record['location'] or job['title']!=record['title']
+                        or job['canonical_opportunity_id']!=record['canonical_id']):
                     return 'foreign'
                 key=mindrift_content.KEY if record['provider']=='mindrift' else DETAIL_KEY
                 metadata=json.loads(source['metadata_json']).get(key,{})
                 accepted=all(metadata.get(k)==record[k] for k in ('response_sha256','observed_at','url'))
                 states.append('after' if accepted else 'before' if binding==record['binding'] else 'foreign')
-            if 'foreign' in states or len(set(states))!=1:return 'foreign'
-            if states[0]=='before':return 'before'
+            if 'foreign' in states:return 'foreign'
+            if set(states)=={'before'}:return 'before'
+            # Already accepted exact source responses are a valid no-op, not a
+            # reason to re-fetch or to overwrite their original source clocks.
+            if not (root/'domain-dispatch.json').exists():return 'before'
+            if set(states)!={'after'}:return 'unknown'
             if (root/'compatible-recovery.json').exists():return 'recovered'
             return 'accepted' if (root/'accepted.json').exists() else 'applied'
         state=observation()
@@ -95,7 +105,8 @@ def content(action, request, root):
         if action=='recover' and state=='before':
             return result('recovered',recovery='uncommitted transaction left original rows intact')
         r.require(state in ('applied','accepted','recovered'),'repair_outcome_requires_reconciliation')
-        r.require(protected(conn)==r.read(p['protected_before']),'source_lifecycle_or_availability_changed')
+        if not (root/'accepted.json').exists():
+            r.require(protected(conn)==r.read(p['protected_before']),'source_lifecycle_or_availability_changed')
         for record in plan['records']:
             repair._binding(conn,record['job_id']) # Includes the original acceptance-chain verifier.
         if not (root/'accepted.json').exists():

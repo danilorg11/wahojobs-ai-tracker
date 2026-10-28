@@ -1,5 +1,7 @@
 # wahojobs-ai-tracker
 
+For all WahoJobs publications, use [Publicação do WahoJobs](docs/publication.md) and `scripts/publication.py`.
+
 The ordinary local product application remains authentication-dormant. The
 reviewed development, test, and private-beta browser activation for durable
 Google login is available only through its explicit local HTTPS launcher.

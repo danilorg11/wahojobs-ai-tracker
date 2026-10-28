@@ -46,17 +46,8 @@ def source_pin(source,commit):
 
 
 def build(source,output):
-    env=p.legacy.clean_environment(dict(BASE_API_URL='http://104.248.236.93',MAIN_DOMAIN='www.wahojobs.com',
-        AI_SUBDOMAIN='worksmarter.wahojobs.com',NEXTAUTH_URL='https://www.wahojobs.com',
-        NEXTAUTH_SECRET='synthetic-local-build-only-not-production',NEXT_PUBLIC_WAHOJOBS_CANDIDATE_ENABLED='1',
-        NODE_ENV='production',BUILD_SCOPE_TRACE=str(output/'public-build-network.jsonl'),
-        NODE_OPTIONS='--require "'+fixture.SCOPE.as_posix()+'"'))
-    subprocess.run([fixture.NODE,str(fixture.DEPS/'next/dist/bin/next'),'build'],cwd=source,env=env,check=True,timeout=600)
-    # Every runtime build file is immutable evidence; caches are not deployed.
-    manifest={str(f.resolve()):p.digest(f.read_bytes()) for f in sorted((source/'.next').rglob('*'))
-              if f.is_file() and 'cache' not in f.relative_to(source/'.next').parts}
-    p.once(output/'build-manifest.json',manifest)
-    print(json.dumps(dict(build_files=len(manifest),source=FRONT)))
+    from publication_build import build as build_once
+    build_once(source,output)
 
 
 def frontend_smoke(selector,visual):
@@ -123,7 +114,7 @@ def rehearsal(output):
     checks=[]
     def qualification(id,categories,command,files,cwd=ROOT,outputs=(),manifests=()):
         checks.append(dict(id=id,categories=categories,command=command,cwd=str(cwd),files=sorted(set(map(str,files))),
-            tools=[sys.executable]+([fixture.NODE] if id.startswith('website') else []),seconds=660,
+            tools=[sys.executable]+([fixture.NODE] if id.startswith('website') else []),seconds=900 if id=='website-build' else 660,
             outputs=list(map(str,outputs)),output_manifests=list(map(str,manifests))))
     qualification('protocol',['source','recovery','resume'],[sys.executable,'-B','-m','unittest','discover','-s','tests','-p','test_publication*.py'],
         [*ROOT.glob('scripts/publication*.py'),ROOT/'scripts/routine_release.py',*ROOT.glob('tests/test_publication*.py')])
@@ -133,8 +124,8 @@ def rehearsal(output):
         [sys.executable,'-B','-m','unittest','tests.test_content_recovery_plan','-v'],tracked(DATA),DATA)
     qualification('website-tests',['source','contract','render','recovery'],
         [fixture.NODE,'--test',*[str(f) for f in sorted((WEBSITE/'tests').glob('*.test.mjs'))]],tracked(WEBSITE),WEBSITE)
-    qualification('website-build',['source','build'],[sys.executable,'-B',str(SELF),'build',str(source),str(output)],
-        [SELF,fixture.SCOPE,*tracked(WEBSITE),fixture.DEPS/'next/package.json',fixture.DEPS/'next/dist/bin/next'],
+    qualification('website-build',['source','build'],[sys.executable,'-B',str(ROOT/'scripts/publication_build.py'),str(source),str(output)],
+        [ROOT/'scripts/publication_build.py',fixture.SCOPE,*tracked(WEBSITE),fixture.DEPS/'next/package.json',fixture.DEPS/'next/dist/bin/next'],
         outputs=[output/'build-manifest.json'],manifests=[output/'build-manifest.json'])
     qualification('common-host-unit',['source','configuration','startup','recovery'],
         [sys.executable,'-B',str(SELF),'unit',str(ROOT/'deploy/publication/wahojobs-publication@.service')],
@@ -147,6 +138,9 @@ def rehearsal(output):
             worker=dict(command=[sys.executable,'-B',str(ROOT/'scripts/publication_worker.py')],files=[
                 str(ROOT/'scripts/publication_worker.py'),str(ROOT/'scripts/routine_release.py'),str(DOMAINS)],payload=payload))
         value['seconds']={k:max(15,v+5) for k,v in p.phase_floors(value).items()};steps.append(value)
+        if payload['kind']=='module' and payload.get('domain')=='retained-content':
+            value['worker']['files'] += [payload['domain_plan'],payload['protected_before']]
+            value['worker']['files'] += [str(path) for path in (DATA/'wahojobs').rglob('*.py')]
     def file(path,artifact):return dict(path=str(path),before=dict(type='file',sha256=p.digest(path.read_bytes())) if path.exists() else None,
         artifact=str(artifact),artifact_sha256=p.digest(artifact.read_bytes()))
     logo_manifest=p.read(fixture.EXISTING/'research/normalized-logo-manifest.json')
@@ -172,6 +166,26 @@ def rehearsal(output):
     step('common-host-entrypoint','infrastructure',['/fixture/hosts/beta'],['common-host-unit','protocol'],
         dict(kind='files',targets=[str(unit)],files=[file(unit,ROOT/'deploy/publication/wahojobs-publication@.service')],hooks=dict(check=[dict(
             command=[sys.executable,'-B',str(SELF),'unit',str(unit)],seconds=10)])),reason='static safety validation; actual Linux/systemd execution remains explicitly unqualified')
+    # Code and retained data are compatible on both readers. Batch their shared
+    # service lifecycle; a production plan needs only one normal stop/start.
+    api=next(s for s in steps if s['id']=='company-api')
+    content=next(s for s in steps if s['id']=='retained-15-descriptions')
+    code_payload=api['worker']['payload'];content_payload=content['worker']['payload']
+    hooks=code_payload.pop('hooks')
+    api['worker']['payload']=dict(kind='module',environment='local',domain='beta-batch',
+        resources=api['resources'],state_directory=str(output/'worker-state'),
+        module=str(ROOT/'scripts/publication_beta.py'),module_sha256=p.digest((ROOT/'scripts/publication_beta.py').read_bytes()),
+        targets=[str(reader),seed['database']],code=code_payload,content=content_payload,hooks=hooks,
+        phase_floor_seconds=dict(observe=20,apply=45,check=25,recover=30,cleanup=20))
+    api['worker']['files']+=[str(ROOT/'scripts/publication_beta.py'),str(SELF)]
+    api['worker']['files']+=content['worker']['files']
+    api['worker']['files']+=[str(path) for path in (BACKEND/'wahojobs').rglob('*.py')]
+    api['worker']['files']=sorted(set(api['worker']['files']))
+    api['checks']=['company-api','retained-content','protocol']
+    api['duration_reason']='one shared maintenance gate and service lifecycle for compatible code plus retained content'
+    api['recovery_reason']='conditional accepted code return with committed content retained, compatible on both readers'
+    api['seconds']={k:max(15,v+5) for k,v in p.phase_floors(api).items()}
+    steps.remove(content)
     config=output/'config.json';p.once(config,dict(format=p.FORMAT,environment='local',title='Useful queue: companies, retained descriptions and common host entry point',
         sources=[dict(path=str(s),commit=c) for s,c in ((WEBSITE,FRONT),(BACKEND,BACK),(DATA,BASE))],checks=checks,steps=steps))
     return finish(output,config,seed,len(logo_files),begin,started)
@@ -201,7 +215,8 @@ def finish(output,config,seed,asset_count,begin=None,started=None):
         human_interventions_during_automatic_rehearsal=0,production_mutations=0,private_host_access=False,
         unmeasured=['Vercel cloud build/promotion','actual Linux/systemd service start/return','actual production database duration'],
         native_linux_qualification=False)
-    p.once(cycle/'report.json',report);return dict(report=str(cycle/'report.json'),**report)
+    p.once(cycle/'report.json',report)
+    return dict(report=str(cycle/'report.json'),seconds=report['total_seconds'],complete=result['complete'],production_mutations=0)
 
 
 if __name__=='__main__':
@@ -209,7 +224,8 @@ if __name__=='__main__':
     if action=='rehearse':print(json.dumps(rehearsal(sys.argv[2]),ensure_ascii=False))
     elif action=='resume':
         output=Path(sys.argv[2]).resolve();config=output/'config.json';values=p.read(config)
-        payload=next(s['worker']['payload'] for s in values['steps'] if s['id']=='retained-15-descriptions')
+        payload=next((s['worker']['payload'] for s in values['steps'] if s['id']=='retained-15-descriptions'),None)
+        if payload is None:payload=next(s['worker']['payload']['content'] for s in values['steps'] if s['id']=='company-api')
         seed=dict(database=payload['database'],plan=payload['domain_plan'],protected=payload['protected_before'],retained_records=15)
         print(json.dumps(finish(output,config,seed,12),ensure_ascii=False))
     elif action=='build':build(Path(sys.argv[2]),Path(sys.argv[3]))
