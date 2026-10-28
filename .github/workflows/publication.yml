@@ -1,0 +1,26 @@
+name: Common publication protocol
+on:
+  push:
+    paths: ['scripts/publication*.py', 'scripts/routine_release.py', 'tests/test_publication*.py', 'tests/test_routine_release.py', 'deploy/publication/**', 'AGENTS.md', 'docs/publication.md', '.github/workflows/publication.yml']
+  pull_request:
+    paths: ['scripts/publication*.py', 'tests/test_publication*.py', 'deploy/publication/**', 'AGENTS.md', 'docs/publication.md', '.github/workflows/publication.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  qualify:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+      - run: python -B -m unittest discover -s tests -p 'test_publication*.py' -v
+      - run: python -B -m unittest discover -s tests -p test_routine_release.py -v
+      - name: Native unit syntax (no activation or production access)
+        run: systemd-analyze verify deploy/publication/wahojobs-publication@.service
+# CI qualifies immutable inputs only. Production is dispatched from the one
+# canonical coordinator after exact approval; no runner-local lock or SSH secret.

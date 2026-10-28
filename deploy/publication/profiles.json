@@ -1,0 +1,22 @@
+{
+  "format": "wahojobs-publication-profiles-v2",
+  "protocol": "scripts/publication.py",
+  "coordinator": "outputs/publication-state",
+  "families": {
+    "content": {"worker": ["vercel", "files"], "checks": ["source", "render", "recovery"], "production_decisions": 1},
+    "frontend": {"worker": ["vercel"], "checks": ["source", "build", "contract", "recovery"], "production_decisions": 1},
+    "backend": {"worker": ["files", "module"], "checks": ["source", "contract", "startup", "preservation", "recovery"], "native_gate_required_if_sqlite_service": true},
+    "data": {"worker": ["module", "sqlite"], "checks": ["source", "data-dry-run", "preservation", "resume", "recovery"], "current_data_restore": false},
+    "integration": {"worker": ["module"], "checks": ["source", "provider-contract", "preservation", "resume", "recovery"], "uncertain_request": "observe_same_operation_never_replay"},
+    "accounts": {"worker": ["module", "files"], "checks": ["source", "ownership", "session", "recovery"], "changed_login": "real-provider-acceptance_or_actual_human_receipt", "finite_exit_inside_same_step": true},
+    "infrastructure": {"worker": ["files", "module"], "checks": ["source", "configuration", "startup", "recovery"], "parent_resource_conflicts_with_children": true}
+  },
+  "targets": {
+    "website": {"resource": "/vercel/team_ionLTcSrf4Fcp4fXSKDemiAN/projects/prj_m2RkRKpgA79X6BLqVXqHm0rNVEgv", "worker": "vercel", "stage_without_domains": true},
+    "beta": {"resources": ["/hosts/601554729/services/wahojobs-beta", "/hosts/601554729/databases/product"], "worker": "files", "files": ["/opt/wahojobs-beta/current", "/etc/wahojobs-inventory-v1.json:code_commit"], "native_gate": "<accepted_release>/wahojobs/maintenance_gate.py", "database": "/var/lib/wahojobs-beta/rehearsal-recovered-001/product.sqlite3", "stop_seconds": 90, "start_observer_seconds": 690, "actual_linux_qualification_required": true},
+    "retained-content": {"resource": "/hosts/601554729/databases/product", "worker": "module", "module": "scripts/publication_domains.py", "domain": "retained-content", "native_transaction": "wahojobs.catalog_content_repair.execute_plan", "offline_lease_required": true, "snapshot_restore": false, "http": 0},
+    "commercial": {"resource": "/commercial/primary", "worker": "module", "native_authority": ".worktrees/unified-account-social-login/commercial/ops/unified-account-release.cjs", "migration_must_be_explicit": true, "human_acceptance_only_for_changed_auth_contract": true},
+    "company-assets": {"resource": "/aws/buckets/wahojobs/companies", "worker": "module", "native_authority": "outputs/remote-companies-20261021/release-preparation/upload_company_logos.py", "conditional_immutable_keys": true, "delete_on_return": false}
+  },
+  "notes": ["Target paths are historical bindings to reobserve before mutation, not fresh production facts.", "A module worker must implement the five-action protocol and retain the native domain's journals, constraints and ownership.", "Native commercial/provider migration adapters need qualification against their actual target before admission; family membership is never permission."]
+}

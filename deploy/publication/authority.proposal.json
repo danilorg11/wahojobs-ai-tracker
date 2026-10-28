@@ -1,0 +1,17 @@
+{
+  "status": "proposal_not_a_grant",
+  "plan_sha256": "EXACT_PREPARED_PLAN_HASH",
+  "human_decision_reference": null,
+  "not_before": null,
+  "expires_at": null,
+  "resources": [],
+  "signatures": [],
+  "host_maintenance": {
+    "historical_ledger_references": [],
+    "historical_actual_debit": null,
+    "carried_protective_capacity": null,
+    "new_full_allowance": null,
+    "approved_ceiling": null,
+    "note": "Amounts in seconds. Unknown historical actual is preserved as null; protective debit and approved ceiling must come from original ledgers. This proposal renews nothing."
+  }
+}

@@ -1,0 +1,24 @@
+[Unit]
+Description=WahoJobs publication operation %i (common protocol)
+After=network-online.target
+
+[Service]
+Type=oneshot
+User=wahojobs-publication
+Group=wahojobs-publication
+WorkingDirectory=/opt/wahojobs-publication/current
+LoadCredential=authority:/var/lib/wahojobs-publication/authorities/%i.json
+Environment=WAHOJOBS_PUBLICATION_AUTHORITY=%d/authority
+ExecStart=/usr/bin/python3 -B scripts/publication_host.py %i
+UMask=0077
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/var/lib/wahojobs-publication
+KillMode=control-group
+# The prepared operation supplies its measured phase deadline. The host worker
+# enforces it; a supervisor timeout leaves durable intent for reconciliation.
+TimeoutStartSec=infinity
+# Add only the exact already-authorized service/data paths via an operation
+# drop-in after review. This template alone grants no product/host mutation.
