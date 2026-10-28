@@ -586,8 +586,34 @@ def authorize(plan, plan_hash, step, states):
         require(all(n.is_finite() and n >= 0 for n in amounts), 'finite_nonnegative_maintenance_capacity_required')
         require(amounts[0]+amounts[1] <= amounts[2], 'maintenance_ceiling_exceeded')
         require(amounts[1] >= Decimal(remaining), 'qualified_operation_allowance_too_small')
+        opened=datetime.fromisoformat(a['window_started_at'])
+        require(start<=opened<=current,'actual_private_window_start_required')
+        require(Decimal(str((current-opened).total_seconds()))+Decimal(remaining)<=amounts[1],
+            'elapsed_plus_full_remaining_exceeds_maintenance_allowance')
     if step.get('human_acceptance',{}).get('mode','before_apply')=='before_apply':
         verify_acceptance(step)
+
+
+def authority_proposal(plan_path,output):
+    raw=Path(plan_path).read_bytes();plan=json.loads(raw)
+    verify_qualifications(plan)
+    scopes={s['signature']:digest(encoded(s['worker']['payload'])) for s in plan['steps']}
+    readonly={key:[value] for key,value in scopes.items()}
+    for reference in plan.get('reuse_plans',[]):
+        require(digest(Path(reference['path']).read_bytes())==reference['sha256'],'reuse_plan_changed')
+        old=read(reference['path'])
+        for step in plan['steps']:
+            for previous in old['steps']:
+                if effect_signature(step)==effect_signature(previous):
+                    payload=json.loads(json.dumps(step['worker']['payload']))
+                    payload['state_directory']=previous['worker']['payload']['state_directory']
+                    readonly[step['signature']].append(digest(encoded(payload)))
+    value=dict(status='proposal_not_a_grant',plan_sha256=digest(raw),human_decision_reference=None,
+        not_before=None,expires_at=None,resources=sorted({r for s in plan['steps'] for r in s['resources']}),
+        signatures=list(scopes),payload_sha256=scopes,read_only_payload_sha256=readonly,
+        host_maintenance=dict(historical_ledger_references=[],historical_actual_debit=None,window_started_at=None,
+            carried_protective_capacity=None,new_full_allowance=None,approved_ceiling=None))
+    once(output,value);return dict(proposal=str(Path(output).resolve()),granted=False,plan_sha256=value['plan_sha256'])
 
 
 def main():
@@ -595,9 +621,11 @@ def main():
     sub = parser.add_subparsers(dest='action', required=True)
     p = sub.add_parser('prepare'); p.add_argument('config'); p.add_argument('--out', required=True); p.add_argument('--cache', default=str(STATE/'qualifications'))
     p = sub.add_parser('run'); p.add_argument('plan'); p.add_argument('--approved-plan'); p.add_argument('--authority'); p.add_argument('--local', action='store_true')
+    p = sub.add_parser('authority-proposal');p.add_argument('plan');p.add_argument('--out',required=True)
     args = parser.parse_args()
     if args.action == 'prepare':
         return prepare(args.config, args.out, args.cache)
+    if args.action=='authority-proposal':return authority_proposal(args.plan,args.out)
     if args.authority:
         os.environ['WAHOJOBS_PUBLICATION_AUTHORITY'] = str(Path(args.authority).resolve())
     return execute(args.plan, args.approved_plan, local=args.local)

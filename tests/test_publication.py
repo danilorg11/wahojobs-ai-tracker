@@ -291,6 +291,7 @@ class CommonTests(unittest.TestCase):
             not_before=(clock-timedelta(seconds=1)).isoformat(),expires_at=(clock+timedelta(seconds=900)).isoformat(),
             resources=s['resources'],signatures=[s['signature']],host_maintenance=dict(
                 historical_ledger_references=['original ledger fixture'],historical_actual_debit=None,
+                window_started_at=(clock-timedelta(seconds=1)).isoformat(),
                 carried_protective_capacity='712820',new_full_allowance='1000',approved_ceiling='769600'))
         p.once(path,grant)
         with patch.dict(os.environ,WAHOJOBS_PUBLICATION_AUTHORITY=str(path)):
@@ -300,6 +301,11 @@ class CommonTests(unittest.TestCase):
             grant['expires_at']=(clock+timedelta(seconds=900)).isoformat();grant['host_maintenance']['approved_ceiling']='712821'
             path.write_bytes(p.encoded(grant))
             with self.assertRaisesRegex(p.Stop,'ceiling'):p.authorize(dict(steps=[s]),'b'*64,s,{})
+            grant['host_maintenance']['approved_ceiling']='769600'
+            grant['not_before']=(clock-timedelta(seconds=1000)).isoformat()
+            grant['host_maintenance']['window_started_at']=(clock-timedelta(seconds=990)).isoformat()
+            path.write_bytes(p.encoded(grant))
+            with self.assertRaisesRegex(p.Stop,'elapsed_plus_full_remaining'):p.authorize(dict(steps=[s]),'b'*64,s,{})
 
     def test_real_subprocess_protocol_can_execute_every_class(self):
         checks=[];steps=[]
@@ -414,6 +420,19 @@ class CommonTests(unittest.TestCase):
         self.assertEqual(p.remaining_procedure(plan,website,states),p.envelope(website))
         website['needs']=['host']
         self.assertEqual(p.remaining_procedure(plan,website,states),p.envelope(website)+p.envelope(host))
+
+    def test_production_worker_binds_the_exact_approved_payload(self):
+        payload=self.files_payload();payload['environment']='production'
+        request=self.worker_request(payload,'observe');clock=datetime.now(timezone.utc)
+        path=self.root/'authority.json';p.once(path,dict(status='granted',human_decision_reference='synthetic fixture decision',
+            plan_sha256=request['plan_sha256'],signatures=[request['signature']],resources=payload['resources'],
+            payload_sha256={request['signature']:p.digest(p.encoded(payload))},
+            not_before=(clock-timedelta(seconds=1)).isoformat(),expires_at=(clock+timedelta(seconds=100)).isoformat()))
+        if os.name!='nt':path.chmod(0o600)
+        with patch.dict(os.environ,WAHOJOBS_PUBLICATION_AUTHORITY=str(path)):
+            w.validate(request)
+            payload['targets']=[str(self.root/'another-target')]
+            with self.assertRaisesRegex(p.Stop,'payload_not_approved'):w.validate(request)
 
 
 if __name__ == '__main__':

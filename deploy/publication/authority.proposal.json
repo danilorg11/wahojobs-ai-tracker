@@ -6,9 +6,12 @@
   "expires_at": null,
   "resources": [],
   "signatures": [],
+  "payload_sha256": {},
+  "read_only_payload_sha256": {},
   "host_maintenance": {
     "historical_ledger_references": [],
     "historical_actual_debit": null,
+    "window_started_at": null,
     "carried_protective_capacity": null,
     "new_full_allowance": null,
     "approved_ceiling": null,

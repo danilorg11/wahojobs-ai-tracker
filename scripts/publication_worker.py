@@ -57,6 +57,11 @@ def validate(request):
         authorized_plan=adoption['current_plan_sha256'] if adoption else request['plan_sha256']
         authorized_signature=adoption['authorized_signature'] if adoption else request['signature']
         r.require(grant['plan_sha256'] == authorized_plan and authorized_signature in grant['signatures'], 'authority_scope_mismatch')
+        actual_payload=r.digest(r.encoded(p))
+        if adoption:
+            r.require(actual_payload in grant['read_only_payload_sha256'][authorized_signature],'adopted_read_only_payload_not_approved')
+        else:
+            r.require(actual_payload==grant['payload_sha256'][authorized_signature],'worker_payload_not_approved')
         r.require(datetime.fromisoformat(grant['not_before']) <= current < datetime.fromisoformat(grant['expires_at']), 'authority_not_current')
         r.require(set(p['resources']) <= set(grant['resources']), 'authority_resource_mismatch')
     return p

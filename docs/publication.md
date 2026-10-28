@@ -34,6 +34,13 @@ conserva fontes, respostas salvas e testes aprovados. Usa recursos locais, sem
 autorização de produção. Os comandos são trabalho do operador, não etapas de
 intervenção do dono.
 
+`python -B scripts/publication.py authority-proposal PLANO --out PROPOSTA`
+materializa recursos, assinaturas e hashes exatos dos parâmetros. Sai com
+`proposal_not_a_grant`: a decisão real ainda precisa ser registrada pelo operador.
+Para host privado, o relógio de manutenção começa na abertura real da janela,
+`window_started_at`; tempo já consumido mais o procedimento restante precisam
+caber na capacidade aprovada. O teto e os registros anteriores permanecem intactos.
+
 Ao alterar o protocolo de recuperação, o ensaio com interrupção real é
 `python -B scripts/rehearse_publication_recovery.py OUTPUT_NORMAL OUTPUT_FALHA_NOVO`.
 Ele usa a transação original, interrompe o processo após o commit, conserva dados
