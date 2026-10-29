@@ -18,11 +18,27 @@ def load(payload):
     return module
 
 
+def native_journal(payload,native):
+    workspace=Path(payload['workspace']).resolve()
+    expected=(workspace/'outputs/remote-companies-20261021/release-preparation/upload_company_logos.py').resolve()
+    r.require(Path(native.__file__).resolve()==expected,'native_publisher_workspace_changed')
+    if payload['boundary'].get('credential_mode')=='cloudshell-managed':
+        r.require(workspace==(Path.home()/'wahojobs-company-logos-20261021').resolve(),'original_cloudshell_workspace_required')
+    # Share the original CLI's journal AND exclusive lock. A new common worker
+    # state directory must never forget a legacy uncertain PUT.
+    return expected.parent/'aws-logo-receipts'
+
+
 def operate(action,request,root,native):
+    with native.exclusive(native_journal(request['payload'],native)):
+        return operate_locked(action,request,root,native)
+
+
+def operate_locked(action,request,root,native):
     payload=request['payload'];root=Path(root)
     boundary=native.Boundary(**payload['boundary']);boundary.validate()
     assets=native.load_assets(Path(payload['workspace']));reused=native.load_reused_assets(Path(payload['workspace']))
-    journal=native.Journal(root/'native-journal')
+    journal=native.Journal(native_journal(payload,native))
     result=lambda state,**kw:dict(operation=request['operation'],signature=request['signature'],state=state,**kw)
     observations=[native.public_probe(a,boundary.bucket_owner) for a in (*assets,*reused)]
     if any(o['state']=='conflict' for o in observations):return result('foreign')
@@ -35,12 +51,14 @@ def operate(action,request,root,native):
     exact=all(o['state']=='exact' for o in observations)
     if action in ('observe','cleanup'):
         if (root/'recovered.json').exists():return result('recovered',immutable_objects_retained=True)
+        if uncertain:return result('unknown',native_intents_preserved=True,original_native_journal=str(journal.directory))
         if not dispatched:return result('before',already_exact=sum(o['state']=='exact' for o in observations))
         if exact:return result('accepted' if (root/'accepted.json').exists() else 'applied')
         if uncertain:return result('unknown',native_intents_preserved=True)
         if (root/'known-failure.json').exists():return result('failed',recovery_required=True)
         return result('unknown',native_intents_preserved=True)
     if action=='apply':
+        r.require(not uncertain,'original_uncertain_native_put_requires_reconciliation')
         r.require(not dispatched,'native_put_dispatch_never_replayed')
         r.once(root/'native-dispatch.json',dict(at=r.now(),boundary=boundary.record()))
         aws=native.AwsCli(payload['aws_executable'],credential_mode=boundary.credential_mode)

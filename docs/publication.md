@@ -130,6 +130,15 @@ seu próprio diário de domínio e recebem o mesmo ID. O modelo systemd em
 `deploy/publication/` não concede root nem acesso ao banco: usuário, paths e
 comandos específicos são preparados e autorizados na instalação.
 
+O adaptador de logos compartilha `aws-logo-receipts` e a exclusão do uploader
+nativo original. Seu diretório de estado comum conserva apenas o protocolo;
+nunca cria outro histórico de PUT. No CloudShell, use a raiz original fixa
+`~/wahojobs-company-logos-20261021`. Uma intenção antiga sem resultado e sem
+objeto exato é `unknown` antes de qualquer envio, inclusive num plano novo.
+Não copie o pacote para outra raiz para retomar. Prepare também o transporte,
+os comandos restritos e a transferência de recibos antes do acesso privado;
+um worker genérico ou um modelo de unidade sozinho não fecha essa preparação.
+
 Retenha também os executáveis qualificados em diretório de versão imutável e
 aponte `worker.command`/`worker.files` para essa versão antes de aprovar produção.
 Conserve-a enquanto houver operação pendente. O plano fixa `coordinator` em
