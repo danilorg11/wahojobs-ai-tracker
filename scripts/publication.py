@@ -243,6 +243,17 @@ def effect_signature(step):
         effect={key:c[key] for key in ('project','team','aliases','accepted_deployment','accepted_commit','candidate_deployment','candidate_commit')}
     elif kind=='sqlite':
         effect={key:payload.get(key) for key in ('environment','kind','database','changes','allowed_tables')}
+    elif (payload.get('domain') in ('beta-batch','retained-content','company-assets')
+          and Path(payload.get('module','')).name in ('publication_beta.py','publication_domains.py','publication_s3.py')):
+        # These built-in domains describe their actual targets/inputs in the
+        # payload. Controller fixes are a new qualified procedure, not a reason
+        # to repeat an already accepted code/data/provider mutation.
+        procedure={'module','module_sha256','state_directory','hooks','phase_floor_seconds','locks','native_gate'}
+        def intent(value):
+            if isinstance(value,dict):return {k:intent(v) for k,v in value.items() if k not in procedure}
+            if isinstance(value,list):return [intent(v) for v in value]
+            return value
+        effect=step.get('qualified_effect',intent(payload))
     else:
         effect=step.get('qualified_effect',payload)
     return digest(encoded(dict(id=step['id'],family=step['family'],resources=step['resources'],
@@ -335,7 +346,7 @@ def prepare(config_path, output, cache=STATE/'qualifications'):
         steps.append(step)
     plan = dict(format=FORMAT, environment=config['environment'], title=config['title'],
         prepared_at=now(), steps=steps, qualifications=qualifications,
-        engine_sha256=digest(Path(__file__).read_bytes()), coordinator=str(STATE),
+        engine_sha256=digest(Path(__file__).read_bytes()), coordinator=str(Path(config.get('coordinator',STATE)).resolve()),
         accounting=config.get('accounting'), transition=config.get('transition'),
         reuse_plans=[dict(path=str(Path(path).resolve()),sha256=digest(Path(path).read_bytes())) for path in config.get('reuse_plans',[])],
         sources=config.get('sources', []))
@@ -528,11 +539,12 @@ def execute(plan_path, approved_hash=None, *, local=False, coordinator=None, wor
     require(plan['format'] == FORMAT and plan['engine_sha256'] == LOADED_ENGINE_SHA256
         and LOADED_ENGINE_SHA256 == digest(Path(__file__).read_bytes()), 'prepared_engine_changed')
     require(local == (plan['environment'] == 'local'), 'environment_boundary_mismatch')
+    control_state=Path(plan.get('coordinator',STATE))
     if not local:
         require(approved_hash == plan_hash, 'exact_final_production_approval_required')
-        require(read(STATE/'transition.json')['state'] == 'active', 'publisher_transition_not_activated')
+        require(read(control_state/'transition.json')['state'] == 'active', 'publisher_transition_not_activated')
     verify_qualifications(plan)
-    coordinator = coordinator or Coordinator(scoped=local or read(STATE/'transition.json')['mode'] == 'scoped')
+    coordinator = coordinator or Coordinator(control_state,scoped=local or read(control_state/'transition.json')['mode'] == 'scoped')
     for reference in plan.get('reuse_plans',[]):coordinator.register_effects(reference['path'],reference['sha256'])
     coordinator.register_effects(plan_path,plan_hash)
     states, results = {}, []

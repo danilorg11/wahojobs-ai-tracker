@@ -434,6 +434,24 @@ class CommonTests(unittest.TestCase):
             payload['targets']=[str(self.root/'another-target')]
             with self.assertRaisesRegex(p.Stop,'payload_not_approved'):w.validate(request)
 
+    def test_internal_beta_delegation_stays_inside_approved_parent_scope(self):
+        payload=self.files_payload();parent=dict(kind='module',domain='beta-batch',environment='local',
+            resources=payload['resources'],targets=payload['targets'],state_directory=str(self.root/'parent'),code=payload)
+        request=self.worker_request(parent,'apply')
+        child=self.worker_request(dict(payload,environment='local',resources=parent['resources'],
+            state_directory=str(Path(parent['state_directory'])/request['operation']/'code-worker')),'apply')
+        w.validate(child,request)
+        child['payload']['targets']=[str(self.root/'different-target')]
+        with self.assertRaisesRegex(p.Stop,'delegated_payload_not_approved'):w.validate(child,request)
+
+    def test_builtin_controller_revision_reuses_only_the_same_business_intent(self):
+        s=step();s['worker']['payload']=dict(kind='module',domain='beta-batch',module='/controller/publication_beta.py',
+            module_sha256='a'*64,targets=['/service'],code=dict(after='candidate'))
+        first=p.effect_signature(s);s['worker']['payload']['module_sha256']='b'*64
+        self.assertEqual(p.effect_signature(s),first)
+        s['worker']['payload']['code']['after']='different candidate'
+        self.assertNotEqual(p.effect_signature(s),first)
+
 
 if __name__ == '__main__':
     unittest.main()

@@ -20,7 +20,7 @@ def publication(action,request,root):
     def child(part,verb):
         value=dict(request,action=verb,payload=dict(payload[part],
             environment=payload['environment'],resources=payload['resources'],state_directory=str(root/(part+'-worker'))))
-        if part=='code':return files.Worker(value).call()
+        if part=='code':return files.Worker(value,verified_parent=request).call()
         return data.content(verb,value,root/'content-worker')
     (root/'content-worker').mkdir(exist_ok=True)
     result=lambda state,**kw:dict(operation=request['operation'],signature=request['signature'],state=state,**kw)

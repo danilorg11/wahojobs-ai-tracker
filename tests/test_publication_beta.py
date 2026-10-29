@@ -27,7 +27,7 @@ class BetaBatchTests(unittest.TestCase):
         self.addCleanup(patch.stopall)
         patch.object(beta.data,'content',side_effect=lambda verb,req,root:action('content',verb)).start()
         class Code:
-            def __init__(self,request):self.request=request
+            def __init__(self,request,**kwargs):self.request=request
             def call(self):return action('code',self.request['action'])
         patch.object(beta.files,'Worker',Code).start()
 

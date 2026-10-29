@@ -130,6 +130,13 @@ seu próprio diário de domínio e recebem o mesmo ID. O modelo systemd em
 `deploy/publication/` não concede root nem acesso ao banco: usuário, paths e
 comandos específicos são preparados e autorizados na instalação.
 
+Retenha também os executáveis qualificados em diretório de versão imutável e
+aponte `worker.command`/`worker.files` para essa versão antes de aprovar produção.
+Conserve-a enquanto houver operação pendente. O plano fixa `coordinator` em
+caminho absoluto; outro checkout da ferramenta continua usando esse mesmo
+coordenador. Uma atualização de ferramenta não apaga uma reserva antiga nem
+autoriza repetir o comando cujo resultado ficou incerto.
+
 Uma decisão final pode autorizar o handoff e o lote preparado juntos. Não faça
 uma sequência de pedidos por teste, chave e reinício. Aceitação humana adicional
 só participa se o contrato alterado realmente a requer, como OAuth. O hash/JSON

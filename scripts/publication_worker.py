@@ -31,11 +31,24 @@ def q(identifier):
     return '"'+identifier+'"'
 
 
-def validate(request):
+def validate(request,verified_parent=None):
     p = request['payload']
     r.require(request['protocol'] == PROTOCOL and request['action'] in ('observe', 'apply', 'check', 'recover', 'cleanup'), 'unsupported_worker_request')
     r.require(len(request['operation']) == 32 and len(request['signature']) == 64, 'operation_binding_required')
     r.require(p['environment'] in ('local', 'production'), 'environment_required')
+    if verified_parent is not None:
+        # Internal Python delegation only, never a flag accepted from JSON.
+        # The already approved beta payload contains the exact child operation.
+        parent=validate(verified_parent)
+        r.require(parent['kind']=='module' and parent.get('domain')=='beta-batch','unsupported_internal_delegation')
+        r.require(all(request[key]==verified_parent[key] for key in ('operation','signature','plan_sha256')),'delegation_binding_changed')
+        allowed={'observe':{'observe'},'apply':{'observe','apply'},'check':{'observe','check'},
+                 'recover':{'observe','recover'},'cleanup':{'observe','cleanup'}}
+        r.require(request['action'] in allowed[verified_parent['action']],'delegated_action_outside_parent_phase')
+        expected=dict(parent['code'],environment=parent['environment'],resources=parent['resources'],
+            state_directory=str(Path(parent['state_directory'])/request['operation']/'code-worker'))
+        r.require(p==expected and set(p['targets'])<=set(parent['targets']),'delegated_payload_not_approved')
+        return p
     adoption=request.get('adoption')
     if adoption:
         r.require(adoption['read_only'] is True and request['action'] in ('observe','check','cleanup')
@@ -68,8 +81,8 @@ def validate(request):
 
 
 class Worker:
-    def __init__(self, request):
-        self.request, self.p = request, validate(request)
+    def __init__(self, request,*,verified_parent=None):
+        self.request, self.p = request, validate(request,verified_parent)
         self.root = Path(self.p['state_directory'])/request['operation']
         self.root.mkdir(parents=True, exist_ok=True)
         if os.name != 'nt':
