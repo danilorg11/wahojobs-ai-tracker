@@ -358,7 +358,7 @@ class Worker:
         returning = (self.root/'recover-intent.json').exists()
         if action == 'observe':
             try:
-                client.promotion(before if returning else after if (self.root/'apply-intent.json').exists() else None)
+                client.promotion(before if returning else after if (self.root/'apply-intent.json').exists() else None, observed_aliases=ids)
             except r.Stop:
                 return self.result('running' if (self.root/'apply-intent.json').exists() else 'unknown')
             if selected == {before}:
@@ -380,13 +380,13 @@ class Worker:
             return self.result('applied')
         if action == 'check':
             r.require(selected == {after}, 'vercel_candidate_no_longer_selected')
-            client.promotion(after); client.smoke(c['aliases'][0], c['probes'])
+            client.promotion(after, observed_aliases=ids); client.smoke(c['aliases'][0], c['probes'])
             if (self.root/'state.json').exists() and r.read(self.root/'state.json')['state'] == 'accepted':
                 return self.result('accepted')
             return self.write_state('accepted')
         if action == 'recover':
             r.require(selected == {after} and not returning, 'vercel_return_not_owned')
-            client.promotion(after)
+            client.promotion(after, observed_aliases=ids)
             accepted = client.metadata(before)
             r.require(accepted['commit'] == c['accepted_commit'] and accepted['ready'] == 'READY'
                       and accepted['project'] == c['project'] and accepted['team'] == c['team'], 'vercel_return_not_exact')

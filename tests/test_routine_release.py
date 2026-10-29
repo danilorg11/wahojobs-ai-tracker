@@ -232,10 +232,10 @@ class PublicationTests(unittest.TestCase):
 
     def test_full_serial_path_includes_all_probes_aliases_and_recovery(self):
         c = self.plan['config']
-        self.assertEqual(r.bounds(c), dict(preflight=129, forward=147, recovery=177, complete=483))
+        self.assertEqual(r.bounds(c), dict(preflight=129, forward=177, recovery=237, complete=573))
         c['probes'] *= 6; c['accepted_probes'] *= 6
         c['aliases'] += ['third.example.test', 'fourth.example.test']
-        self.assertEqual(r.bounds(c)['complete'], 903)
+        self.assertEqual(r.bounds(c)['complete'], 1083)
 
 
 class ClassificationTests(unittest.TestCase):
@@ -324,3 +324,64 @@ class QualificationTests(unittest.TestCase):
 
 if __name__ == '__main__':
     unittest.main()
+
+
+import copy,json,unittest
+from unittest.mock import patch
+m=r
+
+class TerminalTests(unittest.TestCase):
+    def setUp(self):
+        self.config=dict(project='p',team='t',aliases=['a','b'],candidate_deployment='new',candidate_commit='new-source',accepted_deployment='old',accepted_commit='old-source')
+        self.client=m.Vercel(self.config)
+        self.project=dict(id='p',accountId='t',lastAliasRequest=None,targets=dict(production=dict(id='new',readyState='READY',target='production',aliasAssigned=42,aliasError=None)))
+        self.alias=dict(id='new',project='p',team='t',ready='READY',target='production',commit='new-source')
+    def observe(self,target='new',aliases=None):
+        with patch.object(self.client,'cli',return_value=json.dumps(self.project)),patch.object(self.client,'metadata',side_effect=aliases or [self.alias,self.alias]):
+            return self.client.promotion(target)
+    def test_null_job_requires_concrete_production_and_all_aliases(self):
+        self.assertEqual(self.observe()['evidence'],'production_target_and_all_aliases')
+    def test_pending_job_cannot_be_bypassed_with_matching_aliases(self):
+        for status in ('pending','in-progress'):
+            self.project['lastAliasRequest']=dict(jobStatus=status)
+            with self.assertRaises(m.Stop):self.observe()
+    def test_failed_or_unknown_job_cannot_use_null_fallback(self):
+        for job in ({},dict(jobStatus='failed'),dict(jobStatus='unknown')):
+            self.project['lastAliasRequest']=job
+            with self.assertRaises(m.Stop):self.observe()
+    def test_original_terminal_job_remains_supported(self):
+        self.project['lastAliasRequest']=dict(jobStatus='succeeded',toDeploymentId='new',type='promote')
+        self.assertEqual(self.observe()['evidence'],'terminal_alias_job')
+    def test_wrong_terminal_job_rejected(self):
+        self.project['lastAliasRequest']=dict(jobStatus='succeeded',toDeploymentId='other',type='promote')
+        with self.assertRaises(m.Stop):self.observe()
+    def test_missing_production_target_rejected(self):
+        self.project['targets']={}
+        with self.assertRaises(m.Stop):self.observe()
+    def test_production_state_source_and_assignment_guards(self):
+        for key,value in (('id','other'),('readyState','BUILDING'),('target','preview'),('aliasAssigned',False),('aliasError',{'code':'failed'})):
+            original=copy.deepcopy(self.project);self.project['targets']['production'][key]=value
+            with self.assertRaises(m.Stop):self.observe()
+            self.project=original
+    def test_mixed_or_foreign_aliases_preserve_uncertainty(self):
+        for key,value in (('id','other'),('project','other'),('team','other'),('commit','other'),('ready','BUILDING'),('target','preview')):
+            other=dict(self.alias,**{key:value})
+            with self.assertRaises(m.Stop):self.observe(aliases=[self.alias,other])
+    def test_foreign_project_and_rolling_release_rejected(self):
+        for key,value in (('id','other'),('accountId','other'),('rollingRelease',{'active':True})):
+            original=copy.deepcopy(self.project);self.project[key]=value
+            with self.assertRaises(m.Stop):self.observe()
+            self.project=original
+    def test_compatible_return_requires_exact_old_source(self):
+        self.project['targets']['production']['id']='old'
+        old=dict(self.alias,id='old',commit='old-source')
+        self.assertEqual(self.observe('old',[old,old])['deployment'],'old')
+    def test_no_new_request_without_target_and_no_pending_job(self):
+        self.assertIsNone(self.observe(None))
+    def test_unreviewed_target_rejected(self):
+        with self.assertRaises(m.Stop):self.observe('foreign')
+
+    def test_same_phase_alias_observations_avoid_duplicate_api_calls(self):
+        with patch.object(self.client,'cli',return_value=json.dumps(self.project)),patch.object(self.client,'metadata',side_effect=AssertionError('duplicate API read')):
+            self.assertEqual(self.client.promotion('new',observed_aliases=[self.alias,self.alias])['deployment'],'new')
+            with self.assertRaises(m.Stop):self.client.promotion('new',observed_aliases=[])

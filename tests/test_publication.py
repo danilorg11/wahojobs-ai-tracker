@@ -284,6 +284,11 @@ class CommonTests(unittest.TestCase):
         self.assertEqual(p.phase_floors(s)['apply'],810)
         self.assertEqual(p.phase_floors(s)['recover'],850)
 
+    def test_vercel_return_bound_includes_fresh_post_return_aliases(self):
+        s=step();s['worker']['payload']=dict(kind='vercel',configuration=dict(
+            aliases=['one','two'],probes=[{}, {}, {}],accepted_probes=[{}, {}]))
+        self.assertEqual(p.phase_floors(s),dict(observe=50,apply=146,check=86,recover=194,cleanup=50))
+
     def test_authority_requires_full_remaining_recovery_and_preserves_unknown_debit(self):
         s=step();s['access']['kind']='private-host';s['signature']='a'*64
         path=self.root/'authority.json';clock=datetime.now(timezone.utc)

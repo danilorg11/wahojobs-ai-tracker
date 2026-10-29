@@ -212,8 +212,8 @@ def bounds(c):
     aliases = 15 * len(c['aliases'])
     live, accepted = 12 * len(c['probes']), 12 * len(c['accepted_probes'])
     preflight = 15 + aliases + 15 + accepted + live + aliases + 15
-    forward = 60 + aliases + 15 + live + aliases
-    recovery = aliases + 15 + 15 + 60 + aliases + 15 + accepted
+    forward = 60 + aliases + 15 + live + aliases + aliases
+    recovery = aliases + 15 + 15 + 60 + aliases + 15 + accepted + aliases*2
     return dict(preflight=preflight, forward=forward, recovery=recovery,
                 complete=preflight+forward+recovery+30)
 
@@ -294,15 +294,37 @@ class Vercel:
         # No per-domain alias updates, environment writes or new cloud builds.
         return digest(self.cli('promote', deployment, '--yes', '--timeout', '45s', timeout=60))
 
-    def promotion(self, target=None):
+    def promotion(self, target=None, *, observed_aliases=None):
         p = json.loads(self.cli('api', '/v9/projects/'+self.config['project'], '--method', 'GET', '--raw'))
         require(p['id'] == self.config['project'] and p['accountId'] == self.config['team'], 'promotion_project_identity_changed')
         require(not p.get('rollingRelease'), 'rolling_release_requires_coordinated_procedure')
-        job = p.get('lastAliasRequest') or {}
-        require(job.get('jobStatus') not in ('pending', 'in-progress'), 'promotion_still_pending_observe_only')
+        job = p.get('lastAliasRequest')
+        require(not job or job.get('jobStatus') not in ('pending', 'in-progress'), 'promotion_still_pending_observe_only')
         if target is not None:
-            require(job.get('jobStatus') == 'succeeded' and job.get('toDeploymentId') == target
-                    and job.get('type') == 'promote', 'promotion_terminal_success_not_observed')
+            if job is not None:
+                require(job.get('jobStatus') == 'succeeded' and job.get('toDeploymentId') == target
+                        and job.get('type') == 'promote', 'promotion_terminal_success_not_observed')
+                return dict(evidence='terminal_alias_job', deployment=target)
+            # A completed CLI promotion can leave lastAliasRequest null. The
+            # production target and every configured domain must independently
+            # identify the same READY deployment and reviewed source. Never
+            # interpret a missing job as success on its own.
+            expected = {self.config['candidate_deployment']: self.config['candidate_commit'],
+                        self.config['accepted_deployment']: self.config['accepted_commit']}
+            require(target in expected and self.config['aliases'], 'promotion_target_not_reviewed')
+            production = p.get('targets', {}).get('production') or {}
+            require(production.get('id') == target and production.get('readyState') == 'READY'
+                    and production.get('target') == 'production' and production.get('aliasAssigned')
+                    and production.get('aliasError') is None, 'production_target_not_terminal')
+            # The common worker already observed these aliases in this phase.
+            # Reuse that observation rather than repeating identical API calls.
+            aliases = observed_aliases if observed_aliases is not None else [self.metadata(alias) for alias in self.config['aliases']]
+            require(len(aliases) == len(self.config['aliases']) and all(d['id'] == target and d['project'] == self.config['project']
+                        and d['team'] == self.config['team'] and d['ready'] == 'READY'
+                        and d['target'] == 'production' and d['commit'] == expected[target]
+                        for d in aliases), 'production_aliases_not_terminal')
+            return dict(evidence='production_target_and_all_aliases', deployment=target,
+                        aliases=[d['id'] for d in aliases])
 
     def smoke(self, host, probes):
         results = []

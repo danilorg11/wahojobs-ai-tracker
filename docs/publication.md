@@ -151,3 +151,16 @@ uma sequência de pedidos por teste, chave e reinício. Aceitação humana adici
 só participa se o contrato alterado realmente a requer, como OAuth. O hash/JSON
 vincula a operação; a autoridade vem da decisão humana real e do acesso concedido.
 Preserve todos os ledgers, tetos, prazos e resultados incertos originais.
+
+## Confirmação da promoção no Vercel
+
+Uma promoção concluída pela CLI pode deixar `lastAliasRequest` nulo. Nesse caso,
+o adaptador exige o destino de produção READY, atribuição concluída sem erro e
+todos os domínios configurados no mesmo deployment e fonte revisados. Um job
+pendente, falho ou desconhecido continua impedindo aceite. Campo vazio sozinho
+nunca comprova sucesso. A retomada observa o mesmo pedido, sem nova promoção.
+
+Adaptadores `module` que importam arquivos irmãos precisam declarar seu diretório
+de importação na configuração do worker e qualificá-lo com esse mesmo ambiente.
+Conserve esses arquivos em `worker.files`; erro local de importação antes do
+dispatch não justifica repetir build, upload ou abrir outra operação.

@@ -306,7 +306,7 @@ def phase_floors(step):
         c = p['configuration']; aliases = len(c['aliases'])*15
         live, accepted = len(c['probes'])*12, len(c['accepted_probes'])*12
         return dict(observe=aliases+20, apply=aliases+15+live+65,
-                    check=aliases+20+live, recover=aliases+110+accepted, cleanup=aliases+20)
+                    check=aliases+20+live, recover=aliases*2+110+accepted, cleanup=aliases+20)
     if p['kind'] == 'files':
         hooks = p.get('hooks', {})
         total = lambda *names: sum(h['seconds'] for n in names for h in hooks.get(n, []))
